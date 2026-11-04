@@ -8,6 +8,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import javax.crypto.spec.SecretKeySpec
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
@@ -54,9 +55,16 @@ class AppContainerTest {
 
     @Test
     fun secureStoreRoundTrips() {
-        val store = SecureStore(ApplicationProvider.getApplicationContext())
+        val store = SecureStore(
+            ApplicationProvider.getApplicationContext(),
+            SecretKeySpec(ByteArray(32) { 0x42 }, "AES")
+        )
         store.put("test:key", "s3cret-value")
         assertEquals("s3cret-value", store.get("test:key"))
+        val prefs = ApplicationProvider.getApplicationContext<android.content.Context>()
+            .getSharedPreferences("kujira_secure_v1", android.content.Context.MODE_PRIVATE)
+        assertTrue(prefs.getString("test:key", "")!!.startsWith("enc:"))
+        assertTrue(!prefs.getString("test:key", "")!!.contains("s3cret-value"))
         store.remove("test:key")
         assertEquals(null, store.get("test:key"))
     }

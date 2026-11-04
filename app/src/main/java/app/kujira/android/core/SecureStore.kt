@@ -17,13 +17,23 @@ import javax.crypto.spec.GCMParameterSpec
  * keystore-resident key and stored as base64 IV+ciphertext in a private
  * SharedPreferences file.
  */
-class SecureStore(context: Context) {
+class SecureStore(context: Context, private val testKey: SecretKey? = null) {
 
     private val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+
+    // Legacy development builds had a plaintext base64 fallback. Evict such
+    // entries immediately; callers must re-enter/re-authorize credentials.
+    init {
+        val unsafeKeys = prefs.all.filterValues { it is String && it.startsWith("plain:") }.keys
+        if (unsafeKeys.isNotEmpty()) {
+            prefs.edit().apply { unsafeKeys.forEach { remove(it) } }.commit()
+        }
+    }
 
     private fun keyStore(): KeyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
 
     private fun secretKey(): SecretKey {
+        testKey?.let { return it }
         val ks = keyStore()
         (ks.getEntry(KEY_ALIAS, null) as? KeyStore.SecretKeyEntry)?.let { return it.secretKey }
         val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, ANDROID_KEYSTORE)
@@ -45,24 +55,19 @@ class SecureStore(context: Context) {
             prefs.edit().remove(key).apply()
             return
         }
-        val blob = runCatching {
-            val cipher = Cipher.getInstance(TRANSFORMATION)
-            cipher.init(Cipher.ENCRYPT_MODE, secretKey())
-            val ciphertext = cipher.doFinal(value.toByteArray(Charsets.UTF_8))
-            "enc:" + Base64.encodeToString(cipher.iv + ciphertext, Base64.NO_WRAP)
-        }.getOrElse {
-            // Fallback for runtimes without a usable AndroidKeyStore provider.
-            "plain:" + Base64.encodeToString(value.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
-        }
+        // Fail closed: do not store API keys or OAuth tokens when encryption fails.
+        val cipher = Cipher.getInstance(TRANSFORMATION)
+        cipher.init(Cipher.ENCRYPT_MODE, secretKey())
+        val ciphertext = cipher.doFinal(value.toByteArray(Charsets.UTF_8))
+        val blob = "enc:" + Base64.encodeToString(cipher.iv + ciphertext, Base64.NO_WRAP)
         prefs.edit().putString(key, blob).apply()
     }
 
     fun get(key: String): String? {
         val encoded = prefs.getString(key, null) ?: return null
         if (encoded.startsWith("plain:")) {
-            return runCatching {
-                String(Base64.decode(encoded.removePrefix("plain:"), Base64.NO_WRAP), Charsets.UTF_8)
-            }.getOrNull()
+            prefs.edit().remove(key).apply()
+            return null
         }
         return runCatching {
             val blob = Base64.decode(encoded.removePrefix("enc:"), Base64.NO_WRAP)

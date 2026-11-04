@@ -87,10 +87,8 @@ class AppDatabase(context: Context) :
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-        db.execSQL("DROP TABLE IF EXISTS messages")
-        db.execSQL("DROP TABLE IF EXISTS conversations")
-        db.execSQL("DROP TABLE IF EXISTS tool_audit")
-        onCreate(db)
+        // Require an explicit migration rather than silently destroying user data.
+        throw IllegalStateException("Missing Kujira DB migration: $oldVersion -> $newVersion")
     }
 
     // ------------------------------------------------------------------

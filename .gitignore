@@ -5,3 +5,6 @@ build/
 *.iml
 captures/
 *.apk
+local.properties
+.DS_Store
+**/.DS_Store

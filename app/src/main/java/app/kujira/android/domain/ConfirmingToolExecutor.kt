@@ -11,7 +11,8 @@ fun interface ToolConfirmer {
     suspend fun confirm(tool: ToolDescriptor, argumentsJson: String): Boolean
 
     companion object {
-        val AllowAll = ToolConfirmer { _, _ -> true }
+        val AllowAll = ToolConfirmer { _, _ -> true } // Explicit test-only opt-in.
+        val DenyAll = ToolConfirmer { _, _ -> false } // Default until UI attaches.
     }
 }
 
@@ -24,7 +25,7 @@ fun interface ToolConfirmer {
 class ConfirmingToolExecutor(
     private val delegate: ToolExecutor,
     private val policyOf: (ToolDescriptor) -> ToolPolicy,
-    var confirmer: ToolConfirmer = ToolConfirmer.AllowAll
+    var confirmer: ToolConfirmer = ToolConfirmer.DenyAll
 ) : ToolExecutor {
 
     override fun availableTools(): List<ToolDescriptor> = delegate.availableTools()
