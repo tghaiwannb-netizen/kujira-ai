@@ -43,6 +43,9 @@ class LoopbackServer(
 
     val isRunning: Boolean get() = serverSocket?.isClosed == false
 
+    /** Actual bound port (useful when constructed with port 0). */
+    val boundPort: Int get() = serverSocket?.localPort ?: port
+
     /** Binds the port. Throws [McpException] when the port is taken. */
     fun start() {
         if (serverSocket != null) return
