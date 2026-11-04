@@ -161,10 +161,10 @@ fun ProviderRoute(
                     }
                 )
                 val key = apiKey.ifBlank { repo.apiKey(provider.id) }
-                val result = if (key.isNullOrBlank()) {
+                val result = if (key.isNullOrBlank() && candidate.builtin) {
                     TestConnectionResult(success = false, message = "请先填写 API Key")
                 } else {
-                    val outcome = repo.testConnection(candidate, candidate.defaultModelId)
+                    val outcome = repo.testConnection(candidate, candidate.defaultModelId, apiKeyOverride = key)
                     TestConnectionResult(success = outcome.ok, message = outcome.message)
                 }
                 testResult = result

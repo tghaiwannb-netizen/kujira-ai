@@ -194,10 +194,11 @@ class ProviderRepository(
     suspend fun testConnection(
         provider: ProviderConfig,
         modelId: String? = null,
+        apiKeyOverride: String? = null,
     ): ProviderTestResult {
         val model = modelId?.takeIf { it.isNotBlank() } ?: provider.defaultModel()?.id
             ?: return ProviderTestResult(false, "尚未配置模型，请先填写模型 ID。")
-        val key = apiKeyOf(provider)
+        val key = apiKeyOverride?.trim()?.takeIf { it.isNotBlank() } ?: apiKeyOf(provider)
         if (key.isNullOrBlank() && provider.builtin) {
             return ProviderTestResult(false, "尚未配置 API Key，请先填写后再测试。")
         }
