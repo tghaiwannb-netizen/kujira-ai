@@ -126,6 +126,8 @@ fun ChatScreen(
     pluginsHealthy: Boolean = true,
     showReasoning: Boolean = true,
     codeFontEnabled: Boolean = true,
+    /** Set false in tests/screenshot harnesses to skip enter transitions. */
+    animateEntrances: Boolean = true,
     awaitingToolCallId: String? = null,
     suggestions: List<ChatSuggestion> = defaultChatSuggestions,
     onSend: (String) -> Unit = {},
@@ -261,7 +263,7 @@ fun ChatScreen(
                         MessageItem(
                             message = message,
                             modifier = Modifier.animateItem(),
-                            animateIn = isLast,
+                            animateIn = isLast && animateEntrances,
                             isStreaming = isGenerating && isLast && message.role == Role.ASSISTANT,
                             showReasoning = showReasoning,
                             codeFontEnabled = codeFontEnabled,

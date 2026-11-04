@@ -4,37 +4,134 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
+import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavHostController
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
+import app.kujira.android.data.model.ThemeMode
+import app.kujira.android.di.AppContainer
+import app.kujira.android.ui.chat.ChatRoute
+import app.kujira.android.ui.settings.AppearanceRoute
+import app.kujira.android.ui.settings.DataRoute
+import app.kujira.android.ui.settings.ModelRoute
+import app.kujira.android.ui.settings.PluginSettingsRoute
+import app.kujira.android.ui.settings.ProviderRoute
+import app.kujira.android.ui.settings.RootSettingsRoute
+import app.kujira.android.ui.settings.AboutRoute
 import app.kujira.android.ui.theme.KujiraTheme
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        val container = (application as KujiraApplication).container
         setContent {
-            KujiraTheme {
-                Scaffold(modifier = Modifier.fillMaxSize()) { padding ->
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(padding),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "Kujira",
-                            style = MaterialTheme.typography.displayLarge
-                        )
-                    }
-                }
+            KujiraRoot(container)
+        }
+    }
+}
+
+@Composable
+fun KujiraRoot(container: AppContainer) {
+    val settings by container.settingsStore.settings.collectAsStateWithLifecycle()
+    val darkTheme = when (settings.themeMode) {
+        ThemeMode.SYSTEM -> isSystemInDarkTheme()
+        ThemeMode.DARK -> true
+        ThemeMode.LIGHT -> false
+    }
+    KujiraTheme(darkTheme = darkTheme) {
+        // The user's font preference scales every sp value without touching dp layout.
+        val density = LocalDensity.current
+        CompositionLocalProvider(LocalDensity provides Density(density.density, settings.fontScale)) {
+            Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                val navController = rememberNavController()
+                KujiraNavHost(container, navController)
             }
         }
     }
+}
+
+@Composable
+private fun KujiraNavHost(container: AppContainer, navController: NavHostController) {
+    NavHost(navController = navController, startDestination = Routes.CHAT) {
+        composable(Routes.CHAT) {
+            ChatRoute(
+                container = container,
+                onOpenSettings = { navController.navigate(Routes.SETTINGS) },
+                onOpenPlugins = { navController.navigate(Routes.PLUGINS) }
+            )
+        }
+        composable(Routes.SETTINGS) {
+            RootSettingsRoute(
+                container = container,
+                onBack = { navController.popBackStack() },
+                onNavigateAppearance = { navController.navigate(Routes.APPEARANCE) },
+                onNavigateModels = { navController.navigate(Routes.MODELS) },
+                onNavigatePlugins = { navController.navigate(Routes.PLUGINS) },
+                onNavigateData = { navController.navigate(Routes.DATA) },
+                onNavigateAbout = { navController.navigate(Routes.ABOUT) }
+            )
+        }
+        composable(Routes.APPEARANCE) {
+            AppearanceRoute(container = container, onBack = { navController.popBackStack() })
+        }
+        composable(Routes.MODELS) {
+            ModelRoute(
+                container = container,
+                onBack = { navController.popBackStack() },
+                onManageProviders = { navController.navigate(Routes.PROVIDER_EDITOR) }
+            )
+        }
+        composable(Routes.PROVIDER_EDITOR) {
+            ProviderRoute(
+                container = container,
+                providerId = null,
+                onBack = { navController.popBackStack() }
+            )
+        }
+        composable(Routes.PROVIDER_DETAIL) { entry ->
+            ProviderRoute(
+                container = container,
+                providerId = entry.arguments?.getString("providerId"),
+                onBack = { navController.popBackStack() }
+            )
+        }
+        composable(Routes.PLUGINS) {
+            PluginSettingsRoute(container = container, onBack = { navController.popBackStack() })
+        }
+        composable(Routes.DATA) {
+            DataRoute(container = container, onBack = { navController.popBackStack() })
+        }
+        composable(Routes.ABOUT) {
+            AboutRoute(container = container, onBack = { navController.popBackStack() })
+        }
+    }
+}
+
+object Routes {
+    const val CHAT = "chat"
+    const val SETTINGS = "settings"
+    const val APPEARANCE = "settings/appearance"
+    const val MODELS = "settings/models"
+    const val PROVIDER_EDITOR = "settings/provider/new"
+    const val PROVIDER_DETAIL = "settings/provider/{providerId}"
+    const val PLUGINS = "settings/plugins"
+    const val DATA = "settings/data"
+    const val ABOUT = "settings/about"
+
+    fun providerDetail(id: String) = "settings/provider/$id"
 }

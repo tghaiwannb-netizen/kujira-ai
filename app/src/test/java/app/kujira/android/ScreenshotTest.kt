@@ -6,13 +6,17 @@ import android.os.Looper
 import android.view.View
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.ui.Alignment
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.asAndroidBitmap
+import app.kujira.android.data.model.Conversation
+import app.kujira.android.data.model.PluginConfig
+import app.kujira.android.data.model.ThemeMode
+import app.kujira.android.ui.chat.ChatScreen
+import app.kujira.android.ui.chat.previewMessages
+import app.kujira.android.ui.settings.SettingsScreen
+import app.kujira.android.ui.settings.previewProviders
 import app.kujira.android.ui.theme.KujiraTheme
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -34,39 +38,120 @@ import java.io.FileOutputStream
 @Config(sdk = [35], qualifiers = "w411dp-h891dp-xxhdpi", application = android.app.Application::class)
 class ScreenshotTest {
 
-    private val widthPx = 1080
-    private val heightPx = 2400
-
     @Test
-    fun smoke() = render("smoke") {
-        Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("Kujira", style = MaterialTheme.typography.displayLarge)
-            }
-        }
+    fun chatDark() = render("chat-dark", dark = true, sizeDp = 891) {
+        ChatScreen(
+            messages = previewMessages,
+            conversationTitle = "服务器状态检查",
+            modelLabel = "DeepSeek V3.2",
+            pluginsLabel = "2 个插件已连接",
+            animateEntrances = false,
+            onOpenModelPicker = {},
+            onOpenSettings = {}
+        )
     }
 
-    private fun render(name: String, content: @androidx.compose.runtime.Composable () -> Unit) {
+    @Test
+    fun chatLight() = render("chat-light", dark = false, sizeDp = 891) {
+        ChatScreen(
+            messages = previewMessages,
+            conversationTitle = "服务器状态检查",
+            modelLabel = "Claude Sonnet 4.6",
+            pluginsLabel = "1 个插件已连接",
+            animateEntrances = false,
+            onOpenModelPicker = {},
+            onOpenSettings = {}
+        )
+    }
+
+    @Test
+    fun chatEmptyDark() = render("chat-empty-dark", dark = true, sizeDp = 891) {
+        ChatScreen(
+            messages = emptyList(),
+            conversationTitle = "",
+            modelLabel = "DeepSeek V3.2",
+            onOpenModelPicker = {},
+            onOpenSettings = {}
+        )
+    }
+
+    @Test
+    fun settingsDark() = render("settings-dark", dark = true, sizeDp = 891) {
+        SettingsScreen(
+            settings = app.kujira.android.data.model.AppSettings(
+                themeMode = ThemeMode.DARK,
+                activeProviderId = "deepseek",
+                activeModelId = "deepseek-chat"
+            ),
+            providers = previewProviders,
+            plugins = listOf(
+                PluginConfig(
+                    id = "sentinelx",
+                    name = "SentinelX",
+                    emoji = "🛰️",
+                    url = "https://mcp.sentinelx.app/mcp/mcp",
+                    preset = "sentinelx"
+                )
+            ),
+            appVersion = "1.0.0",
+            onBack = null
+        )
+    }
+
+    @Test
+    fun settingsLight() = render("settings-light", dark = false, sizeDp = 891) {
+        SettingsScreen(
+            settings = app.kujira.android.data.model.AppSettings(themeMode = ThemeMode.LIGHT),
+            providers = previewProviders,
+            plugins = emptyList(),
+            appVersion = "1.0.0",
+            onBack = null
+        )
+    }
+
+    private fun render(
+        name: String,
+        dark: Boolean,
+        sizeDp: Int,
+        content: @Composable () -> Unit
+    ) {
+        // Disable system animations so enter transitions finish instantly under Robolectric.
+        android.provider.Settings.Global.putFloat(
+            org.robolectric.RuntimeEnvironment.getApplication().contentResolver,
+            android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 0f
+        )
+        android.provider.Settings.Global.putFloat(
+            org.robolectric.RuntimeEnvironment.getApplication().contentResolver,
+            android.provider.Settings.Global.TRANSITION_ANIMATION_SCALE, 0f
+        )
         val controller = Robolectric.buildActivity(ComponentActivity::class.java).setup()
         val activity = controller.get()
         activity.setContent {
-            KujiraTheme(darkTheme = true) { content() }
+            KujiraTheme(darkTheme = dark) {
+                androidx.compose.material3.Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = androidx.compose.material3.MaterialTheme.colorScheme.background
+                ) { content() }
+            }
         }
-        // Let Compose run its initial composition and one measure/layout pass.
-        repeat(6) {
+        // Advance the simulated clock so enter animations settle before capture.
+        shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(900))
+        repeat(10) {
             shadowOf(Looper.getMainLooper()).idle()
             Thread.sleep(16)
         }
         val decor = activity.window.decorView
-        if (decor.width == 0 || decor.height == 0) {
+        val widthPx = 1080
+        val heightPx = (sizeDp * 2.625f).toInt()
+        // LazyColumn needs several measure/layout passes under Robolectric before
+        // every visible item is composed and placed.
+        repeat(6) {
             decor.measure(
                 View.MeasureSpec.makeMeasureSpec(widthPx, View.MeasureSpec.EXACTLY),
                 View.MeasureSpec.makeMeasureSpec(heightPx, View.MeasureSpec.EXACTLY)
             )
             decor.layout(0, 0, widthPx, heightPx)
-        }
-        repeat(3) {
-            shadowOf(Looper.getMainLooper()).idle()
+            shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(120))
             Thread.sleep(16)
         }
         val w = if (decor.width > 0) decor.width else widthPx
