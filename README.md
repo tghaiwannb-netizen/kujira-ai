@@ -23,7 +23,7 @@
 
 ## 构建
 
-环境：JDK 21、Android SDK（platform 37 + build-tools 37）、Gradle 9.6.1。
+环境：JDK 21、Android SDK（platform 36 + build-tools 36）、Gradle 9.6.1。
 
 ```sh
 ./gradle.sh assembleDebug          # 产出 app/build/outputs/apk/debug/app-debug.apk
@@ -36,11 +36,11 @@
 
 | 组件 | 版本 | 说明 |
 | --- | --- | --- |
-| AGP | 9.5.0 | 内置 Kotlin 2.2.10 支持，`compileSdk = 37` 必需 |
+| AGP | 9.5.0 | 内置 Kotlin 2.2.10 支持，`compileSdk = 36` 必需 |
 | Gradle | 9.6.1 | 与 AGP 9.5 匹配 |
 | Kotlin | 2.2.10（AGP 内置） | 所以不能再用 `org.jetbrains.kotlin.android` 插件 |
 | Compose BOM | 2025.12.01 | 更新的 BOM 要求 AGP 9.1+ 的 Kotlin 2.4 metadata |
-| compileSdk / targetSdk / minSdk | 37 / 36 / 26 | |
+| compileSdk / targetSdk / minSdk | 36 / 36 / 26 | |
 
 > 踩坑记录：2026 下半年的 AndroidX/Compose 库用 Kotlin 2.4 编译，而 AGP 9.5 内置编译器是
 > Kotlin 2.2，读不了 2.4 metadata。要么升级到 AGP 9.1+ 的 Kotlin（当时不可行），要么把库

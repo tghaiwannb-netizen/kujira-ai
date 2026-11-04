@@ -8,7 +8,7 @@ plugins {
 
 android {
     namespace = "app.kujira.android"
-    compileSdk = 37
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "app.kujira.android"
