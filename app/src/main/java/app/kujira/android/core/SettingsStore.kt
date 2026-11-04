@@ -22,14 +22,14 @@ class SettingsStore(context: Context) {
     private val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
-    private val _settings = MutableStateFlow(loadSettings())
-    val settings: StateFlow<AppSettings> = _settings.asStateFlow()
-
     private val _providers = MutableStateFlow(loadProviders())
     val providers: StateFlow<List<ProviderConfig>> = _providers.asStateFlow()
 
     private val _plugins = MutableStateFlow(loadPlugins())
     val plugins: StateFlow<List<PluginConfig>> = _plugins.asStateFlow()
+
+    private val _settings = MutableStateFlow(loadSettings())
+    val settings: StateFlow<AppSettings> = _settings.asStateFlow()
 
     // -- settings ------------------------------------------------------------
 

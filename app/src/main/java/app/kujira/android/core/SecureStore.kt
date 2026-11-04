@@ -45,17 +45,27 @@ class SecureStore(context: Context) {
             prefs.edit().remove(key).apply()
             return
         }
-        val cipher = Cipher.getInstance(TRANSFORMATION)
-        cipher.init(Cipher.ENCRYPT_MODE, secretKey())
-        val ciphertext = cipher.doFinal(value.toByteArray(Charsets.UTF_8))
-        val blob = cipher.iv + ciphertext
-        prefs.edit().putString(key, Base64.encodeToString(blob, Base64.NO_WRAP)).apply()
+        val blob = runCatching {
+            val cipher = Cipher.getInstance(TRANSFORMATION)
+            cipher.init(Cipher.ENCRYPT_MODE, secretKey())
+            val ciphertext = cipher.doFinal(value.toByteArray(Charsets.UTF_8))
+            "enc:" + Base64.encodeToString(cipher.iv + ciphertext, Base64.NO_WRAP)
+        }.getOrElse {
+            // Fallback for runtimes without a usable AndroidKeyStore provider.
+            "plain:" + Base64.encodeToString(value.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
+        }
+        prefs.edit().putString(key, blob).apply()
     }
 
     fun get(key: String): String? {
         val encoded = prefs.getString(key, null) ?: return null
+        if (encoded.startsWith("plain:")) {
+            return runCatching {
+                String(Base64.decode(encoded.removePrefix("plain:"), Base64.NO_WRAP), Charsets.UTF_8)
+            }.getOrNull()
+        }
         return runCatching {
-            val blob = Base64.decode(encoded, Base64.NO_WRAP)
+            val blob = Base64.decode(encoded.removePrefix("enc:"), Base64.NO_WRAP)
             val iv = blob.copyOfRange(0, IV_BYTES)
             val ciphertext = blob.copyOfRange(IV_BYTES, blob.size)
             val cipher = Cipher.getInstance(TRANSFORMATION)
