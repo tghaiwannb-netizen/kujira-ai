@@ -2,6 +2,7 @@ package app.kujira.android.net.llm
 
 import app.kujira.android.data.model.ProviderKind
 import kotlinx.coroutines.flow.Flow
+import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 
@@ -25,7 +26,7 @@ fun interface LlmStreamer {
  */
 class LlmRouter(
     private val httpClient: OkHttpClient = defaultHttpClient(),
-    private val json: kotlinx.serialization.json.Json = LlmJson,
+    private val json: Json = LlmJson,
 ) : LlmStreamer {
 
     private val openAiCompatibleClient = OpenAiCompatibleClient(httpClient, json)

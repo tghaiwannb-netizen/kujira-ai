@@ -59,15 +59,7 @@ internal object OpenAiWire {
         put("stream", true)
         putJsonObject("stream_options") { put("include_usage", true) }
 
-        val messages = buildList {
-            request.systemPrompt?.takeIf { it.isNotBlank() }?.let {
-                add(buildJsonObject { put("role", "system"); put("content", it.trim()) })
-            }
-            for (turn in request.messages) {
-                messageObject(turn, json)?.let(::add)
-            }
-        }
-        putJsonArray("messages") { messages.forEach { add(it) } }
+        putJsonArray("messages") { convertedMessages(request, json).forEach { add(it) } }
 
         if (request.tools.isNotEmpty()) {
             putJsonArray("tools") {
@@ -162,7 +154,33 @@ internal object OpenAiWire {
     internal fun usesMaxCompletionTokens(provider: ProviderConfig, model: String): Boolean =
         isReasoningOnlyModel(provider, model)
 
-    /** Handy for tests and diagnostics: JSON array body for a list of turns. */
+    /**
+     * All system content is merged into a single leading system message:
+     * several OpenAI-compatible providers only accept one system message and
+     * require it to be first.
+     */
+    internal fun convertedMessages(request: LlmRequest, json: Json = LlmJson): List<JsonObject> = buildList {
+        systemText(request)?.let {
+            add(buildJsonObject { put("role", "system"); put("content", it) })
+        }
+        for (turn in request.messages) {
+            if (turn.role == Role.SYSTEM) continue
+            messageObject(turn, json)?.let(::add)
+        }
+    }
+
+    internal fun systemText(request: LlmRequest): String? {
+        val parts = buildList {
+            request.systemPrompt?.trim()?.takeIf { it.isNotEmpty() }?.let(::add)
+            request.messages.filter { it.role == Role.SYSTEM }
+                .map { it.text.trim() }
+                .filter { it.isNotEmpty() }
+                .forEach(::add)
+        }
+        return parts.takeIf { it.isNotEmpty() }?.joinToString("\n\n")
+    }
+
+    /** Handy for tests and diagnostics: the JSON array sent as `messages`. */
     internal fun messagesArray(request: LlmRequest, json: Json = LlmJson): JsonArray =
-        buildJsonArray { request.messages.forEach { messageObject(it, json)?.let(::add) } }
+        buildJsonArray { convertedMessages(request, json).forEach { add(it) } }
 }

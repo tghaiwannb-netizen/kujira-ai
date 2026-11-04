@@ -177,6 +177,20 @@ class OpenAiWireTest {
     }
 
     @Test
+    fun `system prompt and system turns are merged into one leading message`() {
+        val body = OpenAiWire.requestBody(
+            request().copy(messages = listOf(LlmTurn(Role.SYSTEM, "额外"), LlmTurn(Role.USER, "hi")))
+        )
+        val messages = body["messages"]!!.jsonArray
+        assertEquals(2, messages.size)
+        assertEquals(
+            "你是助手\n\n额外",
+            messages[0].jsonObject["content"]!!.jsonPrimitive.content
+        )
+        assertEquals("user", messages[1].jsonObject["role"]!!.jsonPrimitive.content)
+    }
+
+    @Test
     fun `system turns are preserved as system messages`() {
         val body = OpenAiWire.requestBody(
             request().copy(
@@ -192,6 +206,7 @@ class OpenAiWireTest {
     @Test
     fun `tool turn without call id is dropped instead of producing a broken message`() {
         val request = request().copy(
+            systemPrompt = null,
             messages = listOf(LlmTurn(Role.TOOL, text = "orphan", toolCallId = null))
         )
         assertEquals(0, OpenAiWire.messagesArray(request).size)

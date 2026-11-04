@@ -299,7 +299,32 @@ class ChatEngineTest {
         assertEquals(401, failed.httpCode)
         assertFalse(failed.retryable)
         assertEquals("已经写了一半", failed.partialText)
+        assertTrue(failed.partialMessages.isEmpty())
         assertTrue(events.none { it is ChatEvent.Completed })
+    }
+
+    @Test
+    fun `failure after a tool round keeps the already produced messages`() = runBlocking {
+        val streamer = FakeStreamer(
+            listOf(
+                listOf(
+                    LlmEvent.Finished(
+                        toolCalls = listOf(LlmToolCall("c1", "sentinel_ping", "{}")),
+                        finishReason = "tool_calls"
+                    )
+                ),
+                listOf(LlmEvent.TextDelta("半句"), LlmEvent.Failed("服务端错误（500）", 500, true))
+            )
+        )
+
+        val events = engine(streamer, FakeToolExecutor(listOf(pingTool))).send(request()).toList()
+
+        val failed = events.last() as ChatEvent.Failed
+        assertEquals(500, failed.httpCode)
+        assertTrue(failed.retryable)
+        assertEquals(2, failed.partialMessages.size)
+        assertEquals(Role.ASSISTANT, failed.partialMessages[0].role)
+        assertEquals(Role.TOOL, failed.partialMessages[1].role)
     }
 
     @Test

@@ -93,7 +93,8 @@ class ChatEngine(
                         message = outcome.event.message,
                         httpCode = outcome.event.httpCode,
                         retryable = outcome.event.retryable,
-                        partialText = outcome.text
+                        partialText = outcome.text,
+                        partialMessages = produced.toList()
                     )
                 )
                 return@flow

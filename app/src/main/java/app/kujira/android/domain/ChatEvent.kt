@@ -57,11 +57,16 @@ sealed interface ChatEvent {
         val finalMessage: Message? get() = messages.lastOrNull { it.role == Role.ASSISTANT }
     }
 
-    /** Terminal failure. [partialText] is what was streamed before the failure. */
+    /**
+     * Terminal failure. [partialText] is what was streamed before the failure,
+     * [partialMessages] are the assistant/tool messages already produced by
+     * earlier tool rounds of this run (persist them so the tool history survives).
+     */
     data class Failed(
         val message: String,
         val httpCode: Int? = null,
         val retryable: Boolean = false,
-        val partialText: String = ""
+        val partialText: String = "",
+        val partialMessages: List<Message> = emptyList()
     ) : ChatEvent
 }
