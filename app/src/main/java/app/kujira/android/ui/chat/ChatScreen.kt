@@ -171,7 +171,9 @@ fun ChatScreen(
     val lastMessagesCount = messages.size
     LaunchedEffect(lastMessagesCount) {
         if (lastMessagesCount > 0 && autoFollow) {
-            listState.animateScrollToItem(lastMessagesCount - 1)
+            // messages.size is the index of the 1dp end spacer: aligning it to
+            // the top clamps to the real bottom of the list.
+            listState.animateScrollToItem(lastMessagesCount)
         }
     }
     val streamingTick = messages.lastOrNull()?.let { message ->
@@ -186,7 +188,7 @@ fun ChatScreen(
     } ?: 0
     LaunchedEffect(streamingTick) {
         if (lastMessagesCount > 0 && autoFollow) {
-            listState.scrollToItem(lastMessagesCount - 1)
+            listState.scrollToItem(lastMessagesCount)
         }
     }
 
@@ -272,6 +274,9 @@ fun ChatScreen(
                             onToolDecision = onToolDecision,
                         )
                     }
+                    item(key = "chat-end-spacer") {
+                        Spacer(Modifier.height(1.dp))
+                    }
                 }
             }
 
@@ -290,7 +295,7 @@ fun ChatScreen(
                         onClick = {
                             autoFollow = true
                             scope.launch {
-                                listState.animateScrollToItem(messages.lastIndex)
+                                listState.animateScrollToItem(messages.size)
                             }
                         },
                         shape = CircleShape,
