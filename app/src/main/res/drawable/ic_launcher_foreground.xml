@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Kujira: a calm whale silhouette -->
+    <path
+        android:fillColor="#E07A5F"
+        android:pathData="M32,63 C32,49 43,40 57,40 C68,40 76,45 79,52 C87,50 93,45 97,37 C99,47 95,58 87,64 C82,70 74,73 62,73 L41,73 C35,73 32,69 32,63 Z" />
+    <path
+        android:fillColor="#F2EFE9"
+        android:pathData="M46,56 m-3,0 a3,3 0,1 0,6 0 a3,3 0,1 0,-6 0" />
+    <path
+        android:fillColor="#0D0D0F"
+        android:pathData="M46,56 m-1.4,0 a1.4,1.4 0,1 0,2.8 0 a1.4,1.4 0,1 0,-2.8 0" />
+    <path
+        android:strokeColor="#3A3A42"
+        android:strokeWidth="2.4"
+        android:strokeLineCap="round"
+        android:pathData="M50,66 C56,69 64,69 70,66" />
+</vector>
