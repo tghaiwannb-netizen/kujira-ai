@@ -131,7 +131,7 @@ object InlineParser {
                 (source.startsWith("https://", i) || source.startsWith("http://", i)) &&
                     (i == start || !source[i - 1].isLetterOrDigit()) -> {
                     var urlEnd = i
-                    while (urlEnd < end && !source[urlEnd].isWhitespace()) urlEnd++
+                    while (urlEnd < end && isAsciiUrlChar(source[urlEnd])) urlEnd++
                     val raw = source.substring(i, urlEnd)
                     val url = raw.trimTrailingUrlPunctuation()
                     if (url.length > "https://".length) {
@@ -225,6 +225,10 @@ object InlineParser {
         }
         return -1
     }
+
+    /** ASCII URL characters only: CJK punctuation must not be swallowed by a bare link. */
+    private fun isAsciiUrlChar(char: Char): Boolean =
+        char.code < 128 && (char.isLetterOrDigit() || char in "-._~:/?#[]@!$&'()*+,;=%")
 
     private fun isAutoLink(candidate: String): Boolean =
         candidate.startsWith("https://") ||

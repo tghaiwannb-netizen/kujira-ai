@@ -59,8 +59,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
@@ -146,13 +151,16 @@ fun MessageItem(
     if (!animateIn) {
         content()
     } else {
+        val density = LocalDensity.current
         val visibleState = remember(message.id) {
             MutableTransitionState(false).apply { targetState = true }
         }
         AnimatedVisibility(
             visibleState = visibleState,
             enter = fadeIn(animationSpec = tween(180)) +
-                slideInVertically(animationSpec = tween(180)) { height -> height / 3 },
+                slideInVertically(animationSpec = tween(180)) {
+                    with(density) { 12.dp.roundToPx() }
+                },
             exit = ExitTransition.None,
         ) {
             content()
@@ -257,32 +265,30 @@ private fun AssistantMessage(
     }
     val reasoning = message.reasoning
 
+    val accentColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)
     Box(modifier = Modifier.fillMaxWidth()) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(IntrinsicSize.Min),
+                .drawBehind {
+                    val barWidth = 2.dp.toPx()
+                    drawRoundRect(
+                        color = accentColor,
+                        topLeft = Offset(0f, 0f),
+                        size = Size(barWidth, size.height),
+                        cornerRadius = CornerRadius(barWidth / 2f, barWidth / 2f),
+                    )
+                }
+                .padding(start = 13.dp)
+                .combinedClickable(
+                    interactionSource = interactionSource,
+                    indication = null,
+                    onClick = {},
+                    onLongClickLabel = "消息操作",
+                    onLongClick = { menuExpanded = true },
+                ),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxHeight()
-                    .width(2.dp)
-                    .clip(RoundedCornerShape(1.dp))
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)),
-            )
-            Spacer(Modifier.width(11.dp))
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .combinedClickable(
-                        interactionSource = interactionSource,
-                        indication = null,
-                        onClick = {},
-                        onLongClickLabel = "消息操作",
-                        onLongClick = { menuExpanded = true },
-                    ),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
                 if (showReasoning && reasoning.isNotBlank()) {
                     ReasoningPanel(
                         text = reasoning,
@@ -354,7 +360,6 @@ private fun AssistantMessage(
                         onRetry = onRetry,
                     )
                 }
-            }
         }
         MessageActionsMenu(
             expanded = menuExpanded,
