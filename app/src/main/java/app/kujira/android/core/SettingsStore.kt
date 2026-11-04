@@ -9,6 +9,7 @@ import app.kujira.android.data.model.ModelInfo
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
 
 /**
@@ -138,8 +139,8 @@ class SettingsStore(context: Context, private val secrets: SecureStore = SecureS
     private fun encodeHeaders(headers: Map<String, String>): String =
         json.encodeToString(
             kotlinx.serialization.builtins.MapSerializer(
-                kotlinx.serialization.builtins.serializer<String>(),
-                kotlinx.serialization.builtins.serializer<String>()
+                String.serializer(),
+                String.serializer()
             ),
             headers
         )
@@ -147,8 +148,8 @@ class SettingsStore(context: Context, private val secrets: SecureStore = SecureS
     private fun decodeHeaders(raw: String): Map<String, String> =
         json.decodeFromString(
             kotlinx.serialization.builtins.MapSerializer(
-                kotlinx.serialization.builtins.serializer<String>(),
-                kotlinx.serialization.builtins.serializer<String>()
+                String.serializer(),
+                String.serializer()
             ),
             raw
         )
