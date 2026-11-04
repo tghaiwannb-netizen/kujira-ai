@@ -90,3 +90,10 @@ di             AppContainer（手写 DI）
 - 桌面端 SentinelX MCP bridge：`~/Desktop/dsh-plugins/sentinelx-mcp/bridge.mjs` —— OAuth 流程与
   协议细节以它为准。
 - MCP 规范：Streamable HTTP transport。
+
+## 开发与安全说明
+
+- 提交 PR 时由 `.github/workflows/android-ci.yml` 运行 Android Debug APK 构建和 JVM 单元测试。
+- API Key、OAuth token 和自定义 MCP Header 必须经 Android Keystore 加密；Keystore 不可用时拒绝写入，不再退回明文。
+- 旧开发版本的 `plain:` 凭据将被清理，需要重新填写 API Key 或授权。
+- 升级 SQLite schema 前必须提供迁移步骤，禁止直接删表重建。
