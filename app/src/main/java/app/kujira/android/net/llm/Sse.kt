@@ -6,13 +6,9 @@ import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.suspendCancellableCoroutine
 import okhttp3.Call
-import okhttp3.Callback
 import okhttp3.Request
 import okhttp3.Response
-import java.io.IOException
-import kotlin.coroutines.resumeWithException
 
 /**
  * One dispatched `text/event-stream` event.
@@ -127,35 +123,34 @@ internal class SseParser {
 /**
  * Opens an HTTP request and streams its SSE events.
  *
- * Uses OkHttp's async [Call] so collecting cancellation cancels the socket:
- * the flow is a `channelFlow` whose `awaitClose` calls `call.cancel()`, which
- * makes the blocking reader on the IO dispatcher fail fast and close the body.
- * Non-2xx responses are converted into [LlmHttpException] with a friendly
- * Chinese message; transport failures are rethrown as [IOException].
+ * All blocking OkHttp work runs in a child coroutine on [Dispatchers.IO], so
+ * the surrounding flow can be cancelled at any time: `awaitClose` calls
+ * `call.cancel()`, which breaks the blocking `execute()` / line reads and
+ * closes the socket. Non-2xx responses are converted into [LlmHttpException]
+ * with a friendly Chinese message; transport failures surface as [IOException].
  */
 internal class SseTransport(private val callFactory: Call.Factory) {
 
     fun open(request: Request): Flow<SseEvent> = channelFlow {
         val call = callFactory.newCall(request)
-        val response = awaitResponse(call)
-        if (!response.isSuccessful) {
-            val rawBody = runCatching { response.body?.string() }.getOrNull()
-            response.close()
-            throw LlmHttpException(
-                code = response.code,
-                rawBody = rawBody,
-                message = LlmErrors.friendlyHttpMessage(response.code, rawBody)
-            )
-        }
-
-        val parser = SseParser()
-        val reader = launch(Dispatchers.IO) {
+        launch(Dispatchers.IO) {
+            var response: Response? = null
             try {
+                response = call.execute()
+                if (!response.isSuccessful) {
+                    val rawBody = runCatching { response.body?.string() }.getOrNull()
+                    throw LlmHttpException(
+                        code = response.code,
+                        rawBody = rawBody,
+                        message = LlmErrors.friendlyHttpMessage(response.code, rawBody)
+                    )
+                }
                 val source = response.body?.source()
                 if (source == null) {
                     close()
                     return@launch
                 }
+                val parser = SseParser()
                 while (true) {
                     val line = source.readUtf8Line() ?: break
                     for (event in parser.feed(line + "\n")) send(event)
@@ -167,30 +162,12 @@ internal class SseTransport(private val callFactory: Call.Factory) {
             } catch (e: Throwable) {
                 close(e)
             } finally {
-                response.close()
+                response?.close()
             }
         }
 
         awaitClose {
             call.cancel()
-            response.close()
-            reader.cancel()
         }
-    }
-
-    private suspend fun awaitResponse(call: Call): Response = suspendCancellableCoroutine { cont ->
-        cont.invokeOnCancellation { call.cancel() }
-        call.enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {
-                if (!cont.isCancelled) cont.resumeWithException(e)
-            }
-
-            override fun onResponse(call: Call, response: Response) {
-                // Register before resuming: if cancellation wins the race the body is
-                // still closed, and the resumed value is dropped as a no-op.
-                cont.invokeOnCancellation { response.close() }
-                cont.resumeWith(Result.success(response))
-            }
-        })
     }
 }
