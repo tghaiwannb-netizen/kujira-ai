@@ -6,6 +6,16 @@
 
 > 给「蓝色大肥鱼」自己做的小工具。深色墨黑 + 陶土橙，衬线标题，克制动效。
 
+<p align="center">
+  <img src="docs/screenshots/chat-dark.png" width="260" alt="聊天" />
+  <img src="docs/screenshots/chat-empty-dark.png" width="260" alt="空状态" />
+  <img src="docs/screenshots/sentinelx-connected.png" width="260" alt="SentinelX" />
+</p>
+<p align="center">
+  <img src="docs/screenshots/settings-dark.png" width="260" alt="设置" />
+  <img src="docs/screenshots/plugins-dark.png" width="260" alt="插件" />
+</p>
+
 ## 功能
 
 - **多模型对话**：DeepSeek / OpenAI / Anthropic / OpenRouter / 任意 OpenAI 兼容端点
