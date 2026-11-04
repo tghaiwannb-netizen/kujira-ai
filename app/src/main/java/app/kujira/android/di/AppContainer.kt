@@ -26,7 +26,7 @@ class AppContainer(context: Context) {
 
     val database: AppDatabase = AppDatabase(appContext)
     val secureStore: SecureStore = SecureStore(appContext)
-    val settingsStore: SettingsStore = SettingsStore(appContext)
+    val settingsStore: SettingsStore = SettingsStore(appContext, secureStore)
 
     val httpClient: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)

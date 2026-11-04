@@ -17,7 +17,7 @@ import kotlinx.serialization.json.Json
  * Deliberately SharedPreferences-backed with JSON blobs: the data is small,
  * changes are infrequent, and this keeps the storage layer dependency-free.
  */
-class SettingsStore(context: Context) {
+class SettingsStore(context: Context, private val secrets: SecureStore = SecureStore(context)) {
 
     private val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
@@ -72,10 +72,18 @@ class SettingsStore(context: Context) {
     // -- plugins -------------------------------------------------------------
 
     fun savePlugins(list: List<PluginConfig>) {
+        // Keep custom header values out of plaintext SharedPreferences.
+        // Encryption failure is surfaced instead of silently storing secrets.
+        list.forEach { plugin ->
+            if (plugin.headers.isEmpty()) secrets.remove(headersKey(plugin.id))
+            else secrets.put(headersKey(plugin.id), encodeHeaders(plugin.headers))
+        }
+        val redacted = list.map { it.copy(headers = emptyMap()) }
+        check(prefs.edit().putString(
+            KEY_PLUGINS,
+            json.encodeToString(kotlinx.serialization.builtins.ListSerializer(PluginConfig.serializer()), redacted)
+        ).commit()) { "Unable to save plugin settings safely" }
         _plugins.value = list
-        prefs.edit()
-            .putString(KEY_PLUGINS, json.encodeToString(kotlinx.serialization.builtins.ListSerializer(PluginConfig.serializer()), list))
-            .apply()
     }
 
     fun upsertPlugin(plugin: PluginConfig) {
@@ -88,20 +96,62 @@ class SettingsStore(context: Context) {
         }
     }
 
-    fun deletePlugin(id: String) = savePlugins(_plugins.value.filterNot { it.id == id })
+    fun deletePlugin(id: String) {
+        savePlugins(_plugins.value.filterNot { it.id == id })
+        secrets.remove(headersKey(id))
+    }
 
     private fun loadPlugins(): List<PluginConfig> {
         val raw = prefs.getString(KEY_PLUGINS, null) ?: return builtinPlugins()
         val stored = runCatching {
             json.decodeFromString(kotlinx.serialization.builtins.ListSerializer(PluginConfig.serializer()), raw)
         }.getOrElse { builtinPlugins() }
+
+        // Migrate older unencrypted plugin header JSON. Fail closed if the
+        // key cannot be encrypted or the original JSON cannot be redacted.
+        stored.filter { it.headers.isNotEmpty() }.forEach { plugin ->
+            secrets.put(headersKey(plugin.id), encodeHeaders(plugin.headers))
+        }
+        if (stored.any { it.headers.isNotEmpty() }) {
+            val redacted = stored.map { it.copy(headers = emptyMap()) }
+            check(prefs.edit().putString(
+                KEY_PLUGINS,
+                json.encodeToString(kotlinx.serialization.builtins.ListSerializer(PluginConfig.serializer()), redacted)
+            ).commit()) { "Unable to remove legacy unencrypted plugin headers" }
+        }
+        val recovered = stored.map { plugin ->
+            val headers = secrets.get(headersKey(plugin.id))?.let {
+                runCatching { decodeHeaders(it) }.getOrNull()
+            } ?: emptyMap()
+            plugin.copy(headers = headers)
+        }
         // Always ensure built-in presets exist.
-        val merged = stored.toMutableList()
+        val merged = recovered.toMutableList()
         for (builtin in builtinPlugins()) {
             if (merged.none { it.preset == builtin.preset }) merged.add(0, builtin)
         }
         return merged
     }
+
+    private fun headersKey(pluginId: String): String = "plugin:$pluginId:headers"
+
+    private fun encodeHeaders(headers: Map<String, String>): String =
+        json.encodeToString(
+            kotlinx.serialization.builtins.MapSerializer(
+                kotlinx.serialization.builtins.serializer<String>(),
+                kotlinx.serialization.builtins.serializer<String>()
+            ),
+            headers
+        )
+
+    private fun decodeHeaders(raw: String): Map<String, String> =
+        json.decodeFromString(
+            kotlinx.serialization.builtins.MapSerializer(
+                kotlinx.serialization.builtins.serializer<String>(),
+                kotlinx.serialization.builtins.serializer<String>()
+            ),
+            raw
+        )
 
     // -- defaults ------------------------------------------------------------
 
