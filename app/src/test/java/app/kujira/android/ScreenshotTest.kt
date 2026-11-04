@@ -109,6 +109,104 @@ class ScreenshotTest {
         )
     }
 
+    @Test
+    fun pluginsDark() = render("plugins-dark", dark = true, sizeDp = 891) {
+        app.kujira.android.ui.plugins.PluginListScreen(
+            plugins = listOf(
+                PluginConfig(
+                    id = "sentinelx",
+                    name = "SentinelX",
+                    emoji = "🛰️",
+                    url = "https://mcp.sentinelx.app/mcp/mcp",
+                    preset = "sentinelx",
+                    builtin = true,
+                    status = app.kujira.android.data.model.PluginStatus.CONNECTED,
+                    serverName = "SentinelX",
+                    serverVersion = "3.4.11",
+                    enabledToolNames = listOf("sentinel_exec", "sentinel_state", "sentinel_read")
+                ),
+                PluginConfig(
+                    id = "custom",
+                    name = "我的文件服务",
+                    emoji = "📁",
+                    url = "https://example.com/mcp",
+                    status = app.kujira.android.data.model.PluginStatus.UNKNOWN
+                )
+            ),
+            onBack = {},
+            onAdd = {},
+            onImport = {},
+            onOpen = {},
+            onToggleEnabled = { _, _ -> }
+        )
+    }
+
+    @Test
+    fun sentinelXLoggedOut() = render("sentinelx-out", dark = true, sizeDp = 891) {
+        app.kujira.android.ui.sentinelx.SentinelXScreen(
+            plugin = PluginConfig(
+                id = "sentinelx",
+                name = "SentinelX",
+                emoji = "🛰️",
+                url = "https://mcp.sentinelx.app/mcp/mcp",
+                preset = "sentinelx",
+                builtin = true,
+                enabledToolNames = listOf("sentinel_exec", "sentinel_state")
+            ),
+            hosts = emptyList(),
+            selectedHostId = null,
+            onBack = {},
+            onLogin = {},
+            onLogout = {},
+            onRefresh = {},
+            onSelectHost = {},
+            onQuickPrompt = {},
+            onManageTools = {},
+            authorized = false,
+            totalToolCount = 0,
+            enabledToolCount = 0
+        )
+    }
+
+    @Test
+    fun sentinelXConnected() = render("sentinelx-connected", dark = true, sizeDp = 891) {
+        app.kujira.android.ui.sentinelx.SentinelXScreen(
+            plugin = PluginConfig(
+                id = "sentinelx",
+                name = "SentinelX",
+                emoji = "🛰️",
+                url = "https://mcp.sentinelx.app/mcp/mcp",
+                preset = "sentinelx",
+                builtin = true,
+                status = app.kujira.android.data.model.PluginStatus.CONNECTED,
+                serverName = "SentinelX",
+                serverVersion = "3.4.11",
+                enabledToolNames = listOf("sentinel_exec", "sentinel_state", "sentinel_read")
+            ),
+            hosts = listOf(
+                app.kujira.android.net.sentinelx.SentinelXPreset.HostEntry(
+                    id = "host_demo_0001",
+                    hostname = "demo-server",
+                    label = null,
+                    connected = true,
+                    agentVersion = "0.23.34"
+                )
+            ),
+            selectedHostId = "host_demo_0001",
+            planSummary = "Free · 1/1 台已激活",
+            onBack = {},
+            onLogin = {},
+            onLogout = {},
+            onRefresh = {},
+            onSelectHost = {},
+            onQuickPrompt = {},
+            onManageTools = {},
+            authorized = true,
+            totalToolCount = 95,
+            enabledToolCount = 12
+        )
+    }
+
     private fun render(
         name: String,
         dark: Boolean,

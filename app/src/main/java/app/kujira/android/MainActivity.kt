@@ -25,10 +25,13 @@ import androidx.navigation.compose.rememberNavController
 import app.kujira.android.data.model.ThemeMode
 import app.kujira.android.di.AppContainer
 import app.kujira.android.ui.chat.ChatRoute
+import app.kujira.android.ui.plugins.PluginDetailRoute
+import app.kujira.android.ui.plugins.PluginEditRoute
+import app.kujira.android.ui.plugins.PluginsRoute
+import app.kujira.android.ui.plugins.SentinelXRoute
 import app.kujira.android.ui.settings.AppearanceRoute
 import app.kujira.android.ui.settings.DataRoute
 import app.kujira.android.ui.settings.ModelRoute
-import app.kujira.android.ui.settings.PluginSettingsRoute
 import app.kujira.android.ui.settings.ProviderRoute
 import app.kujira.android.ui.settings.RootSettingsRoute
 import app.kujira.android.ui.settings.AboutRoute
@@ -111,7 +114,48 @@ private fun KujiraNavHost(container: AppContainer, navController: NavHostControl
             )
         }
         composable(Routes.PLUGINS) {
-            PluginSettingsRoute(container = container, onBack = { navController.popBackStack() })
+            PluginsRoute(
+                container = container,
+                onBack = { navController.popBackStack() },
+                onOpenPlugin = { id -> navController.navigate(Routes.pluginDetail(id)) },
+                onOpenSentinelX = { navController.navigate(Routes.SENTINELX) }
+            )
+        }
+        composable(Routes.SENTINELX) {
+            SentinelXRoute(
+                container = container,
+                onBack = { navController.popBackStack() },
+                onManageTools = { id -> navController.navigate(Routes.pluginDetail(id)) },
+                onQuickPrompt = { prompt ->
+                    container.pendingPrompt = prompt
+                    navController.popBackStack(Routes.CHAT, inclusive = false)
+                }
+            )
+        }
+        composable(Routes.PLUGIN_DETAIL) { entry ->
+            val pluginId = entry.arguments?.getString("pluginId").orEmpty()
+            if (pluginId == Routes.NEW_PLUGIN_ID) {
+                PluginEditRoute(
+                    container = container,
+                    pluginId = null,
+                    onBack = { navController.popBackStack() }
+                )
+            } else {
+                PluginDetailRoute(
+                    container = container,
+                    pluginId = pluginId,
+                    onBack = { navController.popBackStack() },
+                    onEdit = { navController.navigate(Routes.pluginEdit(pluginId)) },
+                    onOpenSentinelX = { navController.navigate(Routes.SENTINELX) }
+                )
+            }
+        }
+        composable(Routes.PLUGIN_EDIT) { entry ->
+            PluginEditRoute(
+                container = container,
+                pluginId = entry.arguments?.getString("pluginId"),
+                onBack = { navController.popBackStack() }
+            )
         }
         composable(Routes.DATA) {
             DataRoute(container = container, onBack = { navController.popBackStack() })
@@ -130,8 +174,17 @@ object Routes {
     const val PROVIDER_EDITOR = "settings/provider/new"
     const val PROVIDER_DETAIL = "settings/provider/{providerId}"
     const val PLUGINS = "settings/plugins"
+    const val SENTINELX = "sentinelx"
+    const val NEW_PLUGIN_ID = "new"
+    const val PLUGIN_DETAIL_PATH = "plugin"
+    const val PLUGIN_DETAIL = "plugin/{pluginId}"
+    const val PLUGIN_EDIT = "plugin/{pluginId}/edit"
     const val DATA = "settings/data"
     const val ABOUT = "settings/about"
 
     fun providerDetail(id: String) = "settings/provider/$id"
+
+    fun pluginDetail(id: String) = "plugin/$id"
+
+    fun pluginEdit(id: String) = "plugin/$id/edit"
 }

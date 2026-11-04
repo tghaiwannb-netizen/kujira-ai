@@ -85,6 +85,13 @@ class AppContainer(context: Context) {
         }
     )
 
+    /**
+     * One-shot prompt handed to the chat screen (e.g. a SentinelX quick action
+     * tapped on another screen). Consumed and cleared by ChatViewModel.
+     */
+    @Volatile
+    var pendingPrompt: String? = null
+
     init {
         providerRepository.ensureActiveSelection()
     }

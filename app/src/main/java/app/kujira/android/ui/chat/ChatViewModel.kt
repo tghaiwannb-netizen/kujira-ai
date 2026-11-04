@@ -91,6 +91,10 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             if (existing != null) openConversation(existing) else newConversation(persist = false)
             mcp.connectEnabled()
             refreshLabels()
+            container.pendingPrompt?.let { prompt ->
+                container.pendingPrompt = null
+                send(prompt)
+            }
         }
     }
 
