@@ -103,22 +103,20 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     // ------------------------------------------------------------------
 
     fun newConversation(persist: Boolean = true) {
-        viewModelScope.launch {
-            val conversation = Conversation(
-                title = "",
-                providerId = providerRepo.settings.value.activeProviderId,
-                modelId = providerRepo.activeModelId()
-            )
-            if (persist) db.upsertConversation(conversation)
-            activeConversationId = conversation.id
-            settingsStore.updateSettings { it.copy(lastConversationId = conversation.id) }
-            _state.update {
-                it.copy(
-                    activeConversation = conversation,
-                    messages = emptyList(),
-                    error = null
-                )
-            }
+        // State flips synchronously so a message sent immediately after this
+        // call still lands in the new conversation; the DB write is async.
+        val conversation = Conversation(
+            title = "",
+            providerId = providerRepo.settings.value.activeProviderId,
+            modelId = providerRepo.activeModelId()
+        )
+        activeConversationId = conversation.id
+        _state.update {
+            it.copy(activeConversation = conversation, messages = emptyList(), error = null)
+        }
+        settingsStore.updateSettings { it.copy(lastConversationId = conversation.id) }
+        if (persist) {
+            viewModelScope.launch { db.upsertConversation(conversation) }
         }
     }
 
@@ -171,7 +169,47 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     // ------------------------------------------------------------------
 
     fun send(text: String) {
-        val trimmed = text.trim()
+        startGeneration(text.trim(), _state.value.messages)
+    }
+
+    /** Re-asks the model for the answer that follows [message]'s user turn. */
+    fun regenerate(message: Message) {
+        if (_state.value.isGenerating) return
+        val all = _state.value.messages
+        val index = all.indexOfFirst { it.id == message.id }
+        if (index < 0) return
+        val userIndex = (index - 1 downTo 0).firstOrNull { all[it].role == Role.USER } ?: return
+        val userTurn = all[userIndex]
+        val history = all.take(userIndex)
+        viewModelScope.launch {
+            all.drop(userIndex + 1).forEach { db.deleteMessage(it.id) }
+            _state.update { it.copy(messages = history + userTurn, error = null) }
+            startGeneration(userTurn.text, history, existingUserMessage = userTurn)
+        }
+    }
+
+    /** Replaces [message]'s text and regenerates everything after it. */
+    fun editMessage(message: Message, newText: String) {
+        val trimmed = newText.trim()
+        if (trimmed.isEmpty() || _state.value.isGenerating) return
+        val all = _state.value.messages
+        val index = all.indexOfFirst { it.id == message.id }
+        if (index < 0 || message.role != Role.USER) return
+        val history = all.take(index)
+        val updated = message.copy(blocks = listOf(ContentBlock.Text(trimmed)))
+        viewModelScope.launch {
+            all.drop(index + 1).forEach { db.deleteMessage(it.id) }
+            db.updateMessage(updated)
+            _state.update { it.copy(messages = history + updated, error = null) }
+            startGeneration(trimmed, history, existingUserMessage = updated)
+        }
+    }
+
+    private fun startGeneration(
+        trimmed: String,
+        history: List<Message>,
+        existingUserMessage: Message? = null
+    ) {
         if (trimmed.isEmpty() || _state.value.isGenerating) return
         val conversation = _state.value.activeConversation ?: return
 
@@ -183,14 +221,13 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
 
-        val history = _state.value.messages
-        val userMessage = Message(
+        val userMessage = existingUserMessage ?: Message(
             conversationId = conversation.id,
             role = Role.USER,
             blocks = listOf(ContentBlock.Text(trimmed)),
             status = MessageStatus.COMPLETE
         )
-        pendingUserMessage = userMessage
+        pendingUserMessage = if (existingUserMessage == null) userMessage else null
         val streaming = Message(
             conversationId = conversation.id,
             role = Role.ASSISTANT,
@@ -199,9 +236,12 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             providerId = provider.id,
             modelId = modelId
         )
-        _state.update {
-            it.copy(
-                messages = it.messages + userMessage + streaming,
+        _state.update { state ->
+            // The user turn is appended here (unless it already exists, e.g. a
+            // regenerate after an edit), then the streaming placeholder follows.
+            val base = if (existingUserMessage == null) state.messages + userMessage else state.messages
+            state.copy(
+                messages = base + streaming,
                 isGenerating = true,
                 sending = true,
                 error = null

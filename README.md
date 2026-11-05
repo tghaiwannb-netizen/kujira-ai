@@ -20,7 +20,8 @@
 
 - **多模型对话**：DeepSeek / OpenAI / Anthropic / OpenRouter / 任意 OpenAI 兼容端点
 - **流式回复**：SSE 增量渲染、随时停止、Markdown（标题/列表/表格/代码块高亮/复制）
-- **会话管理**：本地 SQLite、分组历史、置顶、重命名、搜索
+- **会话管理**：本地 SQLite、分组历史、置顶、重命名、搜索、**JSON 导出/导入备份**
+- **消息操作**：复制、编辑并重发、重新生成、删除、失败重试
 - **工具调用**：LLM function calling ↔ MCP tools/call 多轮循环，聊天内工具卡片
 - **自定义插件**：任意 MCP server（Streamable HTTP），支持 Bearer / OAuth / 自定义 Header，
   可粘贴 `mcpServers` JSON 导入；每个工具可单独设为 自动 / 询问 / 禁用

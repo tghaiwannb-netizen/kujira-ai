@@ -1,6 +1,8 @@
 package app.kujira.android.ui.settings
 
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -215,16 +217,63 @@ fun DataRoute(container: AppContainer, onBack: () -> Unit) {
         }
     }
 
+    val importLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val text = runCatching {
+                context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+            }.getOrNull()
+            if (text.isNullOrBlank()) {
+                Toast.makeText(context, "读取文件失败", Toast.LENGTH_LONG).show()
+                return@launch
+            }
+            runCatching { container.exportService.importJson(text) }
+                .onSuccess { result ->
+                    Toast.makeText(
+                        context,
+                        "已导入 ${result.conversations} 个会话 / ${result.messages} 条消息",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+                .onFailure { failure ->
+                    Toast.makeText(context, "导入失败：${failure.message}", Toast.LENGTH_LONG).show()
+                }
+        }
+    }
+
     DataSettingsScreen(
         onBack = onBack,
         onExportData = {
             scope.launch {
-                val exported = container.database.conversations.value.size
-                Toast.makeText(context, "已导出 $exported 个会话到剪贴板", Toast.LENGTH_SHORT).show()
+                runCatching {
+                    val payload = container.exportService.exportJson()
+                    val dir = java.io.File(context.getExternalFilesDir(null), "exports").apply { mkdirs() }
+                    val file = java.io.File(dir, "kujira-export-${System.currentTimeMillis()}.json")
+                    file.writeText(payload)
+                    val uri = androidx.core.content.FileProvider.getUriForFile(
+                        context,
+                        "${context.packageName}.fileprovider",
+                        file
+                    )
+                    val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                        type = "application/json"
+                        putExtra(android.content.Intent.EXTRA_STREAM, uri)
+                        putExtra(android.content.Intent.EXTRA_SUBJECT, "Kujira 数据导出")
+                        addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    context.startActivity(android.content.Intent.createChooser(intent, "导出 Kujira 数据"))
+                }.onFailure { failure ->
+                    Toast.makeText(context, "导出失败：${failure.message}", Toast.LENGTH_LONG).show()
+                }
             }
         },
         onImportData = {
-            Toast.makeText(context, "导入功能即将上线", Toast.LENGTH_SHORT).show()
+            runCatching { importLauncher.launch(arrayOf("application/json", "text/plain", "*/*")) }
+                .onFailure {
+                    Toast.makeText(context, "无法打开文件选择器", Toast.LENGTH_SHORT).show()
+                }
         },
         onClearConversations = {
             scope.launch {
