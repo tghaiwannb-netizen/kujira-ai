@@ -30,6 +30,41 @@ class OpenAiStreamStateTest {
     }
 
     @Test
+    fun `parses opencode cost cache reasoning and billing metadata`() {
+        val state = OpenAiStreamState()
+        state.accept(
+            """
+            {
+              "choices": [],
+              "usage": {
+                "prompt_tokens": 1200,
+                "completion_tokens": 300,
+                "total_tokens": 1500,
+                "prompt_tokens_details": {"cached_tokens": 800},
+                "completion_tokens_details": {"reasoning_tokens": 120},
+                "cost": 0.00412,
+                "opencode": {
+                  "billing_source": "go",
+                  "allowance": 0.003,
+                  "tokens": {"cache_write_5m": 10, "cache_write_1h": 20}
+                }
+              }
+            }
+            """.trimIndent()
+        )
+
+        val usage = (state.finished() as LlmEvent.Finished).usage!!
+        assertEquals(1200, usage.promptTokens)
+        assertEquals(300, usage.completionTokens)
+        assertEquals(800, usage.cacheReadTokens)
+        assertEquals(30, usage.cacheWriteTokens)
+        assertEquals(120, usage.reasoningTokens)
+        assertEquals(0.00412, usage.costUsd!!, 0.0000001)
+        assertEquals("go", usage.billingSource)
+        assertEquals(0.003, usage.allowanceUsd!!, 0.0000001)
+    }
+
+    @Test
     fun `reassembles tool call shards by index`() {
         val state = OpenAiStreamState()
 

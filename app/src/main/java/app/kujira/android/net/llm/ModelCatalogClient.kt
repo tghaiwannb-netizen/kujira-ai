@@ -34,6 +34,9 @@ data class CatalogModelInfo(
     val supportsVision: Boolean? = null,
     val supportsReasoning: Boolean? = null,
     val supportsTemperature: Boolean? = null,
+    val inputPricePerMillion: Double? = null,
+    val outputPricePerMillion: Double? = null,
+    val cacheReadPricePerMillion: Double? = null,
 )
 
 data class RemoteModelCatalog(
@@ -268,6 +271,20 @@ class ModelCatalogClient(
                 ?: obj.intOf("max_output_tokens", "maxOutputTokens", "max_output")
                 ?: (obj["top_provider"] as? JsonObject)?.intOf("max_completion_tokens")
 
+            val cost = obj["cost"] as? JsonObject
+            val costText = cost?.get("text") as? JsonObject
+            val pricing = obj["pricing"] as? JsonObject
+            val inputPrice = cost?.doubleOf("input")
+                ?: costText?.doubleOf("input")
+                ?: pricing?.doubleOf("prompt")?.times(1_000_000)
+            val outputPrice = cost?.doubleOf("output")
+                ?: costText?.doubleOf("output")
+                ?: pricing?.doubleOf("completion")?.times(1_000_000)
+            val cacheReadPrice = cost?.doubleOf("cache_read")
+                ?: costText?.doubleOf("cache_read")
+                ?: pricing?.doubleOf("input_cache_read")?.times(1_000_000)
+                ?: pricing?.doubleOf("prompt_cache_read")?.times(1_000_000)
+
             val display = sequenceOf("name", "display_name", "displayName", "nickname")
                 .mapNotNull { obj.stringOf(it) }
                 .firstOrNull { it.isNotBlank() }
@@ -283,6 +300,9 @@ class ModelCatalogClient(
                 supportsVision = supportsVision,
                 supportsReasoning = supportsReasoning,
                 supportsTemperature = supportsTemperature,
+                inputPricePerMillion = inputPrice,
+                outputPricePerMillion = outputPrice,
+                cacheReadPricePerMillion = cacheReadPrice,
             )
         }
 
@@ -290,6 +310,11 @@ class ModelCatalogClient(
             val array = this as? JsonArray ?: return null
             return array.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
         }
+
+        private fun JsonObject.doubleOf(vararg keys: String): Double? =
+            keys.firstNotNullOfOrNull { key ->
+                (this[key] as? JsonPrimitive)?.contentOrNull?.trim()?.toDoubleOrNull()
+            }
 
         /**
          * Merge a live catalogue into the user's list. Existing display names,
@@ -310,6 +335,9 @@ class ModelCatalogClient(
                     supportsReasoning = info.supportsReasoning ?: old?.supportsReasoning ?: false,
                     supportsTemperature = info.supportsTemperature ?: old?.supportsTemperature ?: true,
                     maxOutputTokens = info.maxOutputTokens ?: old?.maxOutputTokens,
+                    inputPricePerMillion = info.inputPricePerMillion ?: old?.inputPricePerMillion,
+                    outputPricePerMillion = info.outputPricePerMillion ?: old?.outputPricePerMillion,
+                    cacheReadPricePerMillion = info.cacheReadPricePerMillion ?: old?.cacheReadPricePerMillion,
                 )
             }
             val remoteIds = remote.mapTo(HashSet()) { it.id }

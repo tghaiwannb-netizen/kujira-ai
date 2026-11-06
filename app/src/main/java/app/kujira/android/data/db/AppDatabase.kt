@@ -20,6 +20,14 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 
+/** One persisted usage record, used by the cost dashboard. */
+data class MessageUsageRow(
+    val providerId: String?,
+    val modelId: String?,
+    val usage: Usage,
+    val createdAt: Long,
+)
+
 /**
  * Thin, hand-rolled SQLite layer.
  *
@@ -47,7 +55,9 @@ class AppDatabase(context: Context) :
                 provider_id TEXT,
                 model_id TEXT,
                 system_prompt TEXT,
-                archived INTEGER NOT NULL DEFAULT 0
+                archived INTEGER NOT NULL DEFAULT 0,
+                context_summary TEXT,
+                context_summary_through TEXT
             )
             """.trimIndent()
         )
@@ -87,10 +97,12 @@ class AppDatabase(context: Context) :
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-        db.execSQL("DROP TABLE IF EXISTS messages")
-        db.execSQL("DROP TABLE IF EXISTS conversations")
-        db.execSQL("DROP TABLE IF EXISTS tool_audit")
-        onCreate(db)
+        // Preserve transcripts across upgrades. v2 adds non-destructive
+        // context-compaction bookkeeping to conversations.
+        if (oldVersion < 2) {
+            db.execSQL("ALTER TABLE conversations ADD COLUMN context_summary TEXT")
+            db.execSQL("ALTER TABLE conversations ADD COLUMN context_summary_through TEXT")
+        }
     }
 
     // ------------------------------------------------------------------
@@ -229,6 +241,39 @@ class AppDatabase(context: Context) :
         Unit
     }
 
+    // ------------------------------------------------------------------
+    // usage
+    // ------------------------------------------------------------------
+
+    suspend fun usageRows(limit: Int = 5000): List<MessageUsageRow> = withContext(Dispatchers.IO) {
+        val out = mutableListOf<MessageUsageRow>()
+        readableDatabase.rawQuery(
+            """
+            SELECT provider_id, model_id, usage_json, created_at
+            FROM messages
+            WHERE usage_json IS NOT NULL AND role = 'ASSISTANT'
+            ORDER BY created_at DESC
+            LIMIT ?
+            """.trimIndent(),
+            arrayOf(limit.toString())
+        ).use { c ->
+            while (c.moveToNext()) {
+                val usage = c.getStringOrNull("usage_json")?.let {
+                    runCatching { json.decodeFromString(Usage.serializer(), it) }.getOrNull()
+                } ?: continue
+                out.add(
+                    MessageUsageRow(
+                        providerId = c.getStringOrNull("provider_id"),
+                        modelId = c.getStringOrNull("model_id"),
+                        usage = usage,
+                        createdAt = c.getLong(c.getColumnIndexOrThrow("created_at"))
+                    )
+                )
+            }
+        }
+        out
+    }
+
     suspend fun clearAll() = withContext(Dispatchers.IO) {
         writableDatabase.delete("messages", null, null)
         writableDatabase.delete("conversations", null, null)
@@ -251,6 +296,8 @@ class AppDatabase(context: Context) :
         put("model_id", modelId)
         put("system_prompt", systemPrompt)
         put("archived", if (archived) 1 else 0)
+        put("context_summary", contextSummary)
+        put("context_summary_through", contextSummaryThrough)
     }
 
     private fun Message.toValues() = ContentValues().apply {
@@ -275,7 +322,9 @@ class AppDatabase(context: Context) :
         providerId = getStringOrNull("provider_id"),
         modelId = getStringOrNull("model_id"),
         systemPrompt = getStringOrNull("system_prompt"),
-        archived = getInt(getColumnIndexOrThrow("archived")) != 0
+        archived = getInt(getColumnIndexOrThrow("archived")) != 0,
+        contextSummary = getStringOrNull("context_summary"),
+        contextSummaryThrough = getStringOrNull("context_summary_through")
     )
 
     private fun Cursor.toMessage() = Message(
@@ -307,6 +356,6 @@ class AppDatabase(context: Context) :
 
     companion object {
         private const val NAME = "kujira.db"
-        private const val VERSION = 1
+        private const val VERSION = 2
     }
 }

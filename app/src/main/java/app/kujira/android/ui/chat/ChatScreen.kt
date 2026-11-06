@@ -69,6 +69,7 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import app.kujira.android.data.model.ContentBlock
+import app.kujira.android.domain.ContextUsage
 import app.kujira.android.data.model.Message
 import app.kujira.android.data.model.Role
 import app.kujira.android.ui.components.KujiraIconButton
@@ -129,6 +130,9 @@ fun ChatScreen(
     /** Set false in tests/screenshot harnesses to skip enter transitions. */
     animateEntrances: Boolean = true,
     awaitingToolCallId: String? = null,
+    contextUsage: ContextUsage = ContextUsage(),
+    compacting: Boolean = false,
+    contextSummary: String? = null,
     suggestions: List<ChatSuggestion> = defaultChatSuggestions,
     onSend: (String) -> Unit = {},
     onStop: () -> Unit = {},
@@ -143,8 +147,11 @@ fun ChatScreen(
     onDeleteMessage: ((Message) -> Unit)? = null,
     onRetryMessage: ((Message) -> Unit)? = null,
     onToolDecision: ((ContentBlock.ToolCall, Boolean) -> Unit)? = null,
+    onCompactContext: () -> Unit = {},
+    onClearContextSummary: () -> Unit = {},
 ) {
     var draft by rememberSaveable { mutableStateOf("") }
+    var contextSheetVisible by remember { mutableStateOf(false) }
     var autoFollow by remember { mutableStateOf(true) }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -230,6 +237,9 @@ fun ChatScreen(
                 pluginsLabel = pluginsLabel,
                 pluginsHealthy = pluginsHealthy,
                 onPluginsClick = onPluginsClick,
+                contextUsage = contextUsage,
+                compacting = compacting,
+                onContextClick = { contextSheetVisible = true },
             )
         },
     ) { innerPadding ->
@@ -316,6 +326,23 @@ fun ChatScreen(
                 }
             }
         }
+    }
+
+    if (contextSheetVisible) {
+        ContextSheet(
+            usage = contextUsage,
+            messages = messages,
+            modelLabel = modelLabel,
+            summary = contextSummary,
+            compacting = compacting,
+            onDismiss = { contextSheetVisible = false },
+            onCompact = {
+                onCompactContext()
+            },
+            onClearSummary = {
+                onClearContextSummary()
+            },
+        )
     }
 }
 

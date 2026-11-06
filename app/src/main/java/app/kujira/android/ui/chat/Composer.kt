@@ -37,8 +37,12 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import app.kujira.android.domain.ContextLevel
+import app.kujira.android.domain.ContextUsage
+import app.kujira.android.domain.formatTokenCount
 import app.kujira.android.ui.components.KujiraChip
 import app.kujira.android.ui.components.KujiraPreviewBox
+import kotlin.math.roundToInt
 
 /**
  * Chat input: model chip row on top, a soft 24dp composer surface with a
@@ -61,6 +65,9 @@ fun Composer(
     pluginsLabel: String? = null,
     pluginsHealthy: Boolean = true,
     onPluginsClick: (() -> Unit)? = null,
+    contextUsage: ContextUsage = ContextUsage(),
+    compacting: Boolean = false,
+    onContextClick: (() -> Unit)? = null,
     placeholder: String = "给 Kujira 发消息…",
     maxLines: Int = 6,
     showDisclaimer: Boolean = true,
@@ -89,6 +96,29 @@ fun Composer(
                 trailingIcon = if (onModelClick != null) Icons.Outlined.ArrowDropDown else null,
                 onClick = onModelClick,
             )
+            if (compacting || contextUsage.usedTokens > 0 ||
+                contextUsage.windowTokens != null || contextUsage.compacted
+            ) {
+                val percent = ((contextUsage.ratio ?: 0f) * 100).roundToInt()
+                val label = when {
+                    compacting -> "正在压缩上下文…"
+                    contextUsage.compacted && contextUsage.windowTokens != null -> "已压缩 $percent%"
+                    contextUsage.compacted -> "已压缩"
+                    contextUsage.windowTokens == null ->
+                        "上下文 ${formatTokenCount(contextUsage.usedTokens)}"
+
+                    else -> "上下文 $percent%"
+                }
+                KujiraChip(
+                    label = label,
+                    leadingDotColor = when (contextUsage.level) {
+                        ContextLevel.NORMAL -> MaterialTheme.colorScheme.tertiary
+                        ContextLevel.WARN -> MaterialTheme.colorScheme.primary
+                        ContextLevel.CRITICAL -> MaterialTheme.colorScheme.error
+                    },
+                    onClick = onContextClick,
+                )
+            }
             if (pluginsLabel != null) {
                 KujiraChip(
                     label = pluginsLabel,

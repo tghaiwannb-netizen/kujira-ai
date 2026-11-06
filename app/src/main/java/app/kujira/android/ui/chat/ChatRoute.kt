@@ -82,6 +82,9 @@ fun ChatRoute(
                 pluginsHealthy = state.pluginsHealthy,
                 showReasoning = state.showReasoning,
                 awaitingToolCallId = state.pendingToolCallId,
+                contextUsage = state.contextUsage,
+                compacting = state.compacting,
+                contextSummary = state.activeConversation?.contextSummary,
                 onSend = viewModel::send,
                 onStop = viewModel::stop,
                 onOpenDrawer = { scope.launch { drawerState.open() } },
@@ -97,7 +100,9 @@ fun ChatRoute(
                     editingText = message.text
                 },
                 onDeleteMessage = { message -> viewModel.deleteMessage(message) },
-                onRetryMessage = { viewModel.retryLast() }
+                onRetryMessage = { viewModel.retryLast() },
+                onCompactContext = viewModel::compactContext,
+                onClearContextSummary = viewModel::clearContextSummary
             )
         }
     }

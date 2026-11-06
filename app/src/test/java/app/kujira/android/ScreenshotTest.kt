@@ -14,12 +14,18 @@ import app.kujira.android.data.model.Conversation
 import app.kujira.android.data.model.PluginConfig
 import app.kujira.android.data.model.ThemeMode
 import app.kujira.android.core.ProviderPresets
+import app.kujira.android.data.model.ToolAudit
+import app.kujira.android.domain.ContextUsage
+import app.kujira.android.domain.UsageBucket
+import app.kujira.android.domain.UsageReport
 import app.kujira.android.ui.chat.ChatScreen
 import app.kujira.android.ui.chat.previewMessages
+import app.kujira.android.ui.settings.AuditLogScreen
 import app.kujira.android.ui.settings.ProviderListScreen
 import app.kujira.android.ui.settings.ProviderSettingsScreen
 import app.kujira.android.ui.settings.SettingsScreen
 import app.kujira.android.ui.settings.TestConnectionResult
+import app.kujira.android.ui.settings.UsageSettingsScreen
 import app.kujira.android.ui.settings.previewProviders
 import app.kujira.android.ui.theme.KujiraTheme
 import org.junit.Test
@@ -52,6 +58,27 @@ class ScreenshotTest {
             animateEntrances = false,
             onOpenModelPicker = {},
             onOpenSettings = {}
+        )
+    }
+
+    @Test
+    fun chatContextDark() = render("chat-context-dark", dark = true, sizeDp = 891) {
+        ChatScreen(
+            messages = previewMessages,
+            conversationTitle = "服务器状态检查",
+            modelLabel = "DeepSeek V4.1 Flash",
+            isGenerating = false,
+            pluginsLabel = "2 个插件已连接",
+            animateEntrances = false,
+            contextUsage = ContextUsage(
+                usedTokens = 24_300,
+                windowTokens = 1_000_000,
+                systemTokens = 800,
+                summaryTokens = 0,
+                messageTokens = 23_500,
+            ),
+            onOpenModelPicker = {},
+            onOpenSettings = {},
         )
     }
 
@@ -97,7 +124,7 @@ class ScreenshotTest {
                     preset = "sentinelx"
                 )
             ),
-            appVersion = "1.1.0",
+            appVersion = "1.2.0",
             onBack = null
         )
     }
@@ -108,7 +135,7 @@ class ScreenshotTest {
             settings = app.kujira.android.data.model.AppSettings(themeMode = ThemeMode.LIGHT),
             providers = previewProviders,
             plugins = emptyList(),
-            appVersion = "1.1.0",
+            appVersion = "1.2.0",
             onBack = null
         )
     }
@@ -150,6 +177,67 @@ class ScreenshotTest {
             modelSyncResult = TestConnectionResult(true, "已从服务端同步 14 个模型（623ms）。"),
             onDelete = {},
             onSave = {},
+        )
+    }
+
+    @Test
+    fun usageDark() = render("usage-dark", dark = true, sizeDp = 891) {
+        val all = UsageBucket(
+            calls = 42,
+            promptTokens = 1_250_000,
+            completionTokens = 180_000,
+            totalTokens = 1_430_000,
+            cacheReadTokens = 820_000,
+            reasoningTokens = 42_000,
+            actualCostUsd = 3.21,
+            estimatedCostUsd = 0.42,
+            estimatedCalls = 3,
+            pricedCalls = 42,
+        )
+        UsageSettingsScreen(
+            report = UsageReport(
+                allTime = all,
+                thisMonth = all.copy(calls = 12, totalTokens = 420_000, actualCostUsd = 1.12),
+                byProvider = listOf(all.copy(providerId = "opencode-go")),
+                byModel = listOf(
+                    all.copy(providerId = "opencode-go", modelId = "deepseek-v4.1-flash")
+                )
+            ),
+            onBack = {},
+            providerName = { "OpenCode Go" },
+            modelName = { _, model -> model ?: "unknown" },
+        )
+    }
+
+    @Test
+    fun auditDark() = render("audit-dark", dark = true, sizeDp = 891) {
+        AuditLogScreen(
+            audits = listOf(
+                ToolAudit(
+                    id = 1,
+                    conversationId = "conversation-1",
+                    pluginId = "sentinelx",
+                    pluginName = "SentinelX",
+                    toolName = "sentinel_exec",
+                    argumentsJson = """{"host_id":"prod-01","command":"df -h"}""",
+                    resultPreview = "/dev/vda1 40G 12G 26G 32% /",
+                    isError = false,
+                    durationMs = 320,
+                ),
+                ToolAudit(
+                    id = 2,
+                    conversationId = "conversation-1",
+                    pluginId = "sentinelx",
+                    pluginName = "SentinelX",
+                    toolName = "sentinel_restart",
+                    argumentsJson = """{"service":"nginx"}""",
+                    resultPreview = "permission_denied",
+                    isError = true,
+                    durationMs = 128,
+                ),
+            ),
+            onBack = {},
+            onClear = {},
         )
     }
 

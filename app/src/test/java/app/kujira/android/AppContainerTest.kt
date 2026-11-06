@@ -31,6 +31,7 @@ class AppContainerTest {
         assertNotNull(container.database)
         assertNotNull(container.settingsStore)
         assertNotNull(container.llmRouter)
+        assertNotNull(container.contextCompactor)
         assertNotNull(container.providerRepository)
         assertNotNull(container.mcpManager)
         assertNotNull(container.toolExecutor)

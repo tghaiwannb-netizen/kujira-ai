@@ -82,6 +82,24 @@ class AnthropicStreamStateTest {
     }
 
     @Test
+    fun `parses anthropic prompt cache usage`() {
+        val state = AnthropicStreamState()
+        state.event(
+            "message_start",
+            """{"type":"message_start","message":{"usage":{"input_tokens":12,"output_tokens":1,"cache_read_input_tokens":800,"cache_creation_input_tokens":40}}}"""
+        )
+        state.event(
+            "message_delta",
+            """{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":7}}"""
+        )
+        state.event("message_stop", """{"type":"message_stop"}""")
+
+        val usage = (state.finished() as LlmEvent.Finished).usage!!
+        assertEquals(800, usage.cacheReadTokens)
+        assertEquals(40, usage.cacheWriteTokens)
+    }
+
+    @Test
     fun `tool use with start input only and no deltas keeps the start json`() {
         val state = AnthropicStreamState()
         state.event(

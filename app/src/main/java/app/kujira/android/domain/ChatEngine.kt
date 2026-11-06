@@ -383,9 +383,3 @@ class ChatEngine(
         }
     }
 }
-
-private operator fun Usage.plus(other: Usage): Usage = Usage(
-    promptTokens = promptTokens + other.promptTokens,
-    completionTokens = completionTokens + other.completionTokens,
-    totalTokens = totalTokens + other.totalTokens
-)

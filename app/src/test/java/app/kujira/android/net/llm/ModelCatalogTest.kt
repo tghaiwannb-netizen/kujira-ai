@@ -69,7 +69,8 @@ class ModelCatalogTest {
                     "reasoning": {"supported": true},
                     "temperature": false
                   },
-                  "modalities": {"input": ["text", "image/png"], "output": ["text"]}
+                  "modalities": {"input": ["text", "image/png"], "output": ["text"]},
+                  "cost": {"input": 0.3, "output": 1.2, "cache_read": 0.006}
                 },
                 {
                   "id": "qwen3-coder",
@@ -91,6 +92,9 @@ class ModelCatalogTest {
         assertEquals(true, flash.supportsVision)
         assertEquals(true, flash.supportsReasoning)
         assertEquals(false, flash.supportsTemperature)
+        assertEquals(0.3, flash.inputPricePerMillion!!, 0.0001)
+        assertEquals(1.2, flash.outputPricePerMillion!!, 0.0001)
+        assertEquals(0.006, flash.cacheReadPricePerMillion!!, 0.0001)
         assertEquals(false, models[1].supportsVision)
         assertEquals(false, models[1].supportsReasoning)
     }
@@ -128,7 +132,12 @@ class ModelCatalogTest {
                   "output_modalities": ["text"]
                 },
                 "top_provider": {"max_completion_tokens": 64000},
-                "supported_parameters": ["tools", "tool_choice", "temperature", "reasoning"]
+                "supported_parameters": ["tools", "tool_choice", "temperature", "reasoning"],
+                "pricing": {
+                  "prompt": "0.000003",
+                  "completion": "0.000015",
+                  "input_cache_read": "0.0000003"
+                }
               }]
             }
             """.trimIndent()
@@ -140,6 +149,9 @@ class ModelCatalogTest {
         assertEquals(true, model.supportsVision)
         assertEquals(true, model.supportsReasoning)
         assertEquals(true, model.supportsTemperature)
+        assertEquals(3.0, model.inputPricePerMillion!!, 0.0001)
+        assertEquals(15.0, model.outputPricePerMillion!!, 0.0001)
+        assertEquals(0.3, model.cacheReadPricePerMillion!!, 0.0001)
     }
 
     @Test

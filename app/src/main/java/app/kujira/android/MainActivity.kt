@@ -30,11 +30,13 @@ import app.kujira.android.ui.plugins.PluginEditRoute
 import app.kujira.android.ui.plugins.PluginsRoute
 import app.kujira.android.ui.plugins.SentinelXRoute
 import app.kujira.android.ui.settings.AppearanceRoute
+import app.kujira.android.ui.settings.AuditRoute
 import app.kujira.android.ui.settings.DataRoute
 import app.kujira.android.ui.settings.ModelRoute
 import app.kujira.android.ui.settings.ProviderListRoute
 import app.kujira.android.ui.settings.ProviderRoute
 import app.kujira.android.ui.settings.RootSettingsRoute
+import app.kujira.android.ui.settings.UsageRoute
 import app.kujira.android.ui.settings.AboutRoute
 import app.kujira.android.ui.theme.KujiraTheme
 
@@ -85,13 +87,18 @@ private fun KujiraNavHost(container: AppContainer, navController: NavHostControl
                 onBack = { navController.popBackStack() },
                 onNavigateAppearance = { navController.navigate(Routes.APPEARANCE) },
                 onNavigateModels = { navController.navigate(Routes.MODELS) },
+                onNavigateUsage = { navController.navigate(Routes.USAGE) },
                 onNavigatePlugins = { navController.navigate(Routes.PLUGINS) },
+                onNavigateAudit = { navController.navigate(Routes.AUDIT) },
                 onNavigateData = { navController.navigate(Routes.DATA) },
                 onNavigateAbout = { navController.navigate(Routes.ABOUT) }
             )
         }
         composable(Routes.APPEARANCE) {
             AppearanceRoute(container = container, onBack = { navController.popBackStack() })
+        }
+        composable(Routes.USAGE) {
+            UsageRoute(container = container, onBack = { navController.popBackStack() })
         }
         composable(Routes.MODELS) {
             ModelRoute(
@@ -169,6 +176,9 @@ private fun KujiraNavHost(container: AppContainer, navController: NavHostControl
         composable(Routes.DATA) {
             DataRoute(container = container, onBack = { navController.popBackStack() })
         }
+        composable(Routes.AUDIT) {
+            AuditRoute(container = container, onBack = { navController.popBackStack() })
+        }
         composable(Routes.ABOUT) {
             AboutRoute(container = container, onBack = { navController.popBackStack() })
         }
@@ -179,6 +189,7 @@ object Routes {
     const val CHAT = "chat"
     const val SETTINGS = "settings"
     const val APPEARANCE = "settings/appearance"
+    const val USAGE = "settings/usage"
     const val MODELS = "settings/models"
     const val PROVIDERS = "settings/providers"
     const val PROVIDER_EDITOR = "settings/provider/new"
@@ -190,6 +201,7 @@ object Routes {
     const val PLUGIN_DETAIL = "plugin/{pluginId}"
     const val PLUGIN_EDIT = "plugin/{pluginId}/edit"
     const val DATA = "settings/data"
+    const val AUDIT = "settings/audit"
     const val ABOUT = "settings/about"
 
     fun providerDetail(id: String) = "settings/provider/$id"

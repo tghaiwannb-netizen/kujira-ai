@@ -4,6 +4,7 @@ import app.kujira.android.data.model.ContentBlock
 import app.kujira.android.data.model.Message
 import app.kujira.android.data.model.MessageStatus
 import app.kujira.android.data.model.Role
+import app.kujira.android.data.model.Usage
 
 /*
  * Fake transcript data for @Preview only. The real screens get their data
@@ -28,6 +29,7 @@ internal fun previewAssistantMessage(
     id: String = "preview-assistant-1",
     status: MessageStatus = MessageStatus.COMPLETE,
     error: String? = null,
+    usage: Usage? = null,
 ): Message = Message(
     id = id,
     conversationId = PREVIEW_CONVERSATION_ID,
@@ -36,6 +38,7 @@ internal fun previewAssistantMessage(
     createdAt = 1_760_000_001_000L,
     status = status,
     error = error,
+    usage = usage,
 )
 
 internal fun previewToolCall(
@@ -94,6 +97,15 @@ internal val previewMessages: List<Message> = listOf(
                 output = "{\"ok\":true,\"cpu_pct\":12,\"memory_used_pct\":68,\"services_running\":24}",
             ),
             ContentBlock.Text(previewAssistantMarkdown),
+        ),
+        usage = Usage(
+            promptTokens = 1_840,
+            completionTokens = 326,
+            totalTokens = 2_166,
+            reasoningTokens = 120,
+            cacheReadTokens = 1_200,
+            costUsd = 0.0038,
+            billingSource = "go",
         ),
     ),
 )

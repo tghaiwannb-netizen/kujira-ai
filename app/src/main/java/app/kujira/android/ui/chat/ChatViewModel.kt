@@ -9,11 +9,16 @@ import app.kujira.android.data.model.ContentBlock
 import app.kujira.android.data.model.Conversation
 import app.kujira.android.data.model.Message
 import app.kujira.android.data.model.MessageStatus
+import app.kujira.android.data.model.ModelInfo
+import app.kujira.android.data.model.ProviderConfig
 import app.kujira.android.data.model.Role
 import app.kujira.android.data.model.ToolDescriptor
 import app.kujira.android.data.model.ToolPolicy
 import app.kujira.android.domain.ChatEvent
 import app.kujira.android.domain.ChatRequest
+import app.kujira.android.domain.ContextCompactionException
+import app.kujira.android.domain.ContextUsage
+import app.kujira.android.domain.TokenEstimator
 import app.kujira.android.domain.ToolConfirmer
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -44,7 +49,9 @@ data class ChatUiState(
     val showReasoning: Boolean = true,
     val pendingTool: ToolConfirmationRequest? = null,
     val pendingToolCallId: String? = null,
-    val sending: Boolean = false
+    val sending: Boolean = false,
+    val compacting: Boolean = false,
+    val contextUsage: ContextUsage = ContextUsage()
 )
 
 /**
@@ -58,6 +65,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val settingsStore = container.settingsStore
     private val providerRepo = container.providerRepository
     private val engine = container.chatEngine
+    private val compactor = container.contextCompactor
     private val mcp = container.mcpManager
     private val gated = container.gatedToolExecutor
 
@@ -80,6 +88,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             settingsStore.settings.collect { settings ->
                 _state.update { it.copy(showReasoning = settings.showReasoning) }
                 refreshLabels()
+                refreshContextUsage()
             }
         }
         viewModelScope.launch {
@@ -114,6 +123,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         _state.update {
             it.copy(activeConversation = conversation, messages = emptyList(), error = null)
         }
+        refreshContextUsage()
         settingsStore.updateSettings { it.copy(lastConversationId = conversation.id) }
         if (persist) {
             viewModelScope.launch { db.upsertConversation(conversation) }
@@ -134,6 +144,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         _state.update {
             it.copy(activeConversation = conversation, messages = messages, error = null)
         }
+        refreshContextUsage()
     }
 
     fun renameConversation(id: String, title: String) {
@@ -211,7 +222,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         existingUserMessage: Message? = null
     ) {
         if (trimmed.isEmpty() || _state.value.isGenerating) return
-        val conversation = _state.value.activeConversation ?: return
+        var conversation = _state.value.activeConversation ?: return
 
         val provider = providerRepo.activeProvider()
         val modelId = providerRepo.activeModelId() ?: provider?.defaultModel()?.id
@@ -220,6 +231,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             _state.update { it.copy(error = "还没有配置好模型：请在「设置 → 模型」里选择 provider 并填入 API Key。") }
             return
         }
+        val modelInfo = provider.models.firstOrNull { it.id == modelId } ?: provider.defaultModel()
 
         val userMessage = existingUserMessage ?: Message(
             conversationId = conversation.id,
@@ -247,13 +259,47 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 error = null
             )
         }
+        refreshContextUsage()
 
         sendJob = viewModelScope.launch {
+            var effectiveHistory = effectiveHistory(conversation, history)
+            val window = modelInfo?.contextWindow
+            val projected = contextUsageFor(conversation, history, extraText = trimmed).usedTokens
+            if (window != null && projected > window * AUTO_COMPACT_RATIO) {
+                _state.update { it.copy(compacting = true) }
+                var compacted: Conversation? = null
+                try {
+                    compacted = performCompaction(
+                        conversation = conversation,
+                        messages = history,
+                        provider = provider,
+                        apiKey = apiKey,
+                        modelId = modelId,
+                        modelInfo = modelInfo
+                    )
+                } catch (cancelled: CancellationException) {
+                    _state.update { it.copy(compacting = false) }
+                    finishInterrupted(conversation, streaming)
+                    throw cancelled
+                } catch (_: Throwable) {
+                    // If compression fails, still try the request. The provider's
+                    // own error (or a successful send) is more useful than
+                    // blocking the turn because an optional optimisation failed.
+                } finally {
+                    _state.update { it.copy(compacting = false) }
+                }
+                val updated = compacted
+                if (updated != null) {
+                    conversation = updated
+                    effectiveHistory = effectiveHistory(updated, history)
+                }
+            }
+
             try {
                 engine.send(
                     ChatRequest(
                         conversationId = conversation.id,
-                        history = history,
+                        history = effectiveHistory,
                         userText = trimmed,
                         provider = provider,
                         apiKey = apiKey,
@@ -266,16 +312,197 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             } catch (cancelled: CancellationException) {
                 finishInterrupted(conversation, streaming)
                 throw cancelled
-            } catch (failure: Throwable) {
+            } catch (failureThrowable: Throwable) {
                 _state.update {
                     it.copy(
                         isGenerating = false,
                         sending = false,
-                        error = failure.message ?: "生成失败"
+                        error = failureThrowable.message ?: "生成失败"
                     )
                 }
             }
         }
+    }
+
+    /**
+     * Manual compaction from the context sheet. Never deletes transcript
+     * messages; it only changes what subsequent requests send.
+     */
+    fun compactContext() {
+        val state = _state.value
+        if (state.isGenerating || state.compacting) return
+        val conversation = state.activeConversation ?: return
+        val provider = providerRepo.activeProvider() ?: return
+        val modelId = providerRepo.activeModelId() ?: provider.defaultModel()?.id ?: return
+        val apiKey = providerRepo.apiKey(provider.id) ?: return
+        val modelInfo = provider.models.firstOrNull { it.id == modelId } ?: provider.defaultModel()
+
+        viewModelScope.launch {
+            _state.update { it.copy(compacting = true, error = null) }
+            try {
+                performCompaction(
+                    conversation = conversation,
+                    messages = _state.value.messages,
+                    provider = provider,
+                    apiKey = apiKey,
+                    modelId = modelId,
+                    modelInfo = modelInfo
+                )
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Throwable) {
+                _state.update {
+                    it.copy(error = "上下文压缩失败：${failure.message ?: "未知错误"}")
+                }
+            } finally {
+                _state.update { it.copy(compacting = false) }
+            }
+        }
+    }
+
+    fun clearContextSummary() {
+        val conversation = _state.value.activeConversation ?: return
+        if (conversation.contextSummary.isNullOrBlank()) return
+        val updated = conversation.copy(
+            contextSummary = null,
+            contextSummaryThrough = null,
+            updatedAt = System.currentTimeMillis()
+        )
+        viewModelScope.launch {
+            db.upsertConversation(updated)
+            _state.update { it.copy(activeConversation = updated) }
+            refreshContextUsage()
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // context budget + compaction
+    // ------------------------------------------------------------------
+
+    /**
+     * Requests use the summary plus only the messages after the cutoff. The
+     * full transcript stays visible in the UI and in the database.
+     */
+    private fun effectiveHistory(conversation: Conversation, messages: List<Message>): List<Message> {
+        val summary = conversation.contextSummary?.trim()?.takeIf { it.isNotEmpty() }
+            ?: return messages
+        val through = conversation.contextSummaryThrough ?: return messages
+        val index = messages.indexOfFirst { it.id == through }
+        val recent = if (index >= 0) messages.drop(index + 1) else messages
+        val summaryMessage = Message(
+            conversationId = conversation.id,
+            role = Role.SYSTEM,
+            blocks = listOf(
+                ContentBlock.Text(
+                    "以下是较早对话的压缩摘要，请把它当作已确认的上下文，继续完成后续任务：\n\n$summary"
+                )
+            ),
+            status = MessageStatus.COMPLETE
+        )
+        return listOf(summaryMessage) + recent
+    }
+
+    private fun recentMessages(conversation: Conversation, messages: List<Message>): List<Message> {
+        if (conversation.contextSummary.isNullOrBlank()) return messages
+        val through = conversation.contextSummaryThrough ?: return messages
+        val index = messages.indexOfFirst { it.id == through }
+        return if (index >= 0) messages.drop(index + 1) else messages
+    }
+
+    private fun activeModelInfo(): ModelInfo? {
+        val settings = providerRepo.settings.value
+        val provider = providerRepo.activeProvider() ?: return null
+        return provider.models.firstOrNull { it.id == settings.activeModelId }
+            ?: provider.defaultModel()
+    }
+
+    private fun contextUsageFor(
+        conversation: Conversation,
+        messages: List<Message>,
+        extraText: String = "",
+    ): ContextUsage {
+        val settings = settingsStore.settings.value
+        val systemText = conversation.systemPrompt?.trim()?.takeIf { it.isNotEmpty() }
+            ?: settings.systemPrompt
+        val systemTokens = TokenEstimator.estimate(systemText)
+        val hasSummary = !conversation.contextSummary.isNullOrBlank() &&
+            conversation.contextSummaryThrough != null
+        val summaryTokens = if (hasSummary) TokenEstimator.estimate(conversation.contextSummary.orEmpty()) else 0
+        val messageTokens = TokenEstimator.estimate(recentMessages(conversation, messages)) +
+            TokenEstimator.estimate(extraText)
+        return ContextUsage(
+            usedTokens = systemTokens + summaryTokens + messageTokens,
+            windowTokens = activeModelInfo()?.contextWindow,
+            systemTokens = systemTokens,
+            summaryTokens = summaryTokens,
+            messageTokens = messageTokens,
+            compacted = hasSummary
+        )
+    }
+
+    private fun refreshContextUsage() {
+        val conversation = _state.value.activeConversation ?: return
+        val usage = contextUsageFor(conversation, _state.value.messages)
+        _state.update { it.copy(contextUsage = usage) }
+    }
+
+    private suspend fun performCompaction(
+        conversation: Conversation,
+        messages: List<Message>,
+        provider: ProviderConfig,
+        apiKey: String,
+        modelId: String,
+        modelInfo: ModelInfo?,
+    ): Conversation {
+        val window = modelInfo?.contextWindow ?: DEFAULT_CONTEXT_WINDOW
+        val previousIndex = conversation.contextSummaryThrough
+            ?.let { id -> messages.indexOfFirst { it.id == id } }
+            ?: -1
+        val startIndex = if (conversation.contextSummary.isNullOrBlank()) 0 else previousIndex + 1
+        if (startIndex >= messages.size) {
+            throw ContextCompactionException("没有新的旧消息可以压缩")
+        }
+
+        val keepBudget = (window * CONTEXT_KEEP_RATIO).toInt().coerceAtLeast(2_000)
+        var keepStart = messages.size
+        var accumulated = 0
+        for (index in messages.indices.reversed()) {
+            if (index < startIndex) break
+            val tokens = TokenEstimator.estimate(messages[index])
+            if (accumulated + tokens > keepBudget && keepStart < messages.size) break
+            accumulated += tokens
+            keepStart = index
+        }
+        // Never start the retained window on a tool result: its assistant
+        // tool-call turn would be hidden in the summary, producing an orphan
+        // tool message that OpenAI/Anthropic reject.
+        while (keepStart > startIndex && messages[keepStart].role == Role.TOOL) {
+            keepStart--
+        }
+        if (keepStart <= startIndex) {
+            throw ContextCompactionException("当前上下文还很充裕，不需要压缩")
+        }
+
+        val toSummarize = messages.subList(startIndex, keepStart)
+        val chunkTokens = (window * 0.30).toInt().coerceIn(1_500, 24_000)
+        val result = compactor.summarize(
+            provider = provider,
+            apiKey = apiKey,
+            modelId = modelId,
+            messages = toSummarize,
+            previousSummary = conversation.contextSummary,
+            sessionId = conversation.id,
+            chunkTokenLimit = chunkTokens
+        )
+        val updated = conversation.copy(
+            contextSummary = result.summary,
+            contextSummaryThrough = toSummarize.last().id,
+            updatedAt = System.currentTimeMillis()
+        )
+        db.upsertConversation(updated)
+        _state.update { it.copy(activeConversation = updated) }
+        refreshContextUsage()
+        return updated
     }
 
     fun stop() {
@@ -288,9 +515,21 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     fun deleteMessage(message: Message) {
         viewModelScope.launch {
             db.deleteMessage(message.id)
+            val conversation = _state.value.activeConversation
+            val summaryInvalidated = conversation?.contextSummaryThrough == message.id
+            if (conversation != null && summaryInvalidated) {
+                val cleared = conversation.copy(
+                    contextSummary = null,
+                    contextSummaryThrough = null,
+                    updatedAt = System.currentTimeMillis()
+                )
+                db.upsertConversation(cleared)
+                _state.update { it.copy(activeConversation = cleared) }
+            }
             _state.update { state ->
                 state.copy(messages = state.messages.filterNot { it.id == message.id })
             }
+            refreshContextUsage()
         }
     }
 
@@ -446,6 +685,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 error = if (event.toolLimitReached) "已达到工具调用轮数上限，回答可能不完整。" else null
             )
         }
+        refreshContextUsage()
     }
 
     private suspend fun finishFailed(
@@ -472,6 +712,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 error = event.message
             )
         }
+        refreshContextUsage()
     }
 
     private suspend fun finishInterrupted(conversation: Conversation, streaming: Message) {
@@ -489,6 +730,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 sending = false
             )
         }
+        refreshContextUsage()
     }
 
     private fun titleFrom(event: ChatEvent.Completed): String {
@@ -529,5 +771,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         sendJob?.cancel()
         pendingConfirm?.complete(false)
         super.onCleared()
+    }
+
+    private companion object {
+        const val AUTO_COMPACT_RATIO = 0.85f
+        const val CONTEXT_KEEP_RATIO = 0.30
+        const val DEFAULT_CONTEXT_WINDOW = 128_000
     }
 }
