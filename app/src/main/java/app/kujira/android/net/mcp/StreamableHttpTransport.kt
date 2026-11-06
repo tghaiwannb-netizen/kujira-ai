@@ -1,10 +1,16 @@
 package app.kujira.android.net.mcp
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
+import okhttp3.Call
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
@@ -38,6 +44,13 @@ interface McpAuthTokenProvider {
  * One instance == one MCP session: it owns the `mcp-session-id` header and
  * knows how to decode both response shapes (plain JSON and SSE streams).
  * Requests without an expected response (notifications) accept 202/204.
+ *
+ * Cancellation: all blocking OkHttp work (connect, headers *and* reading the
+ * body) runs on [Dispatchers.IO], and a watcher coroutine calls
+ * [Call.cancel] the moment the caller is cancelled. Before this, tapping
+ * "stop" during a tool call had to wait for the HTTP request to finish
+ * (up to the 180 s tool timeout) and the body was even parsed on the caller's
+ * (main) thread.
  */
 class StreamableHttpTransport(
     private val endpoint: String,
@@ -136,14 +149,37 @@ class StreamableHttpTransport(
         }
         logger("→ ${request.method} ${request.url}")
 
-        val response: Response = try {
-            withContext(Dispatchers.IO) { call.execute() }
+        return try {
+            coroutineScope {
+                // Blocking socket reads do not react to coroutine cancellation,
+                // so a watcher cancels the OkHttp call as soon as we are cancelled.
+                val canceller = launch(Dispatchers.Default) {
+                    try {
+                        awaitCancellation()
+                    } finally {
+                        call.cancel()
+                    }
+                }
+                try {
+                    withContext(Dispatchers.IO) { readAttempt(call, expectedId) }
+                } finally {
+                    canceller.cancel()
+                }
+            }
         } catch (timeout: SocketTimeoutException) {
+            currentCoroutineContext().ensureActive()
             throw McpException("MCP 请求超时（${timeoutMs / 1000}s）：服务器没有及时响应", timeout)
         } catch (io: IOException) {
+            // A cancelled call surfaces as IOException("Canceled"): turn it back
+            // into a CancellationException instead of a fake connection error.
+            currentCoroutineContext().ensureActive()
             throw McpException("无法连接 MCP 服务器：${io.message ?: io.javaClass.simpleName}", io)
         }
+    }
 
+    /** Blocking: runs the call and decodes the response. Must stay off the main thread. */
+    private fun readAttempt(call: Call, expectedId: JsonElement?): Attempt {
+        val response: Response = call.execute()
         return response.use { res ->
             res.header(HEADER_SESSION_ID)?.takeIf { it.isNotBlank() }?.let { sessionId = it }
             res.header(HEADER_PROTOCOL_VERSION)?.takeIf { it.isNotBlank() }?.let { protocolVersion = it }

@@ -1,11 +1,16 @@
 package app.kujira.android.ui.chat
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
-import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
@@ -44,6 +49,7 @@ import androidx.compose.material.icons.outlined.Menu
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Storage
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -55,11 +61,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -67,6 +75,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import app.kujira.android.data.model.ContentBlock
 import app.kujira.android.domain.ContextUsage
@@ -75,6 +84,7 @@ import app.kujira.android.data.model.Role
 import app.kujira.android.ui.components.KujiraIconButton
 import app.kujira.android.ui.theme.KujiraTheme
 import kotlinx.coroutines.launch
+import java.util.Calendar
 
 /** One tappable prompt card on the chat empty state. */
 data class ChatSuggestion(
@@ -108,13 +118,14 @@ val defaultChatSuggestions: List<ChatSuggestion> = listOf(
 )
 
 /**
- * The chat screen: restrained top bar, full-bleed transcript, sticky composer,
- * branded empty state, and follow-the-bottom scrolling that pauses when the
- * user scrolls up.
+ * The chat screen: restrained top bar with a live status line, full-bleed
+ * transcript, sticky composer, branded empty state, and follow-the-bottom
+ * scrolling that pauses when the user scrolls up.
  *
- * Self-contained UI state: the draft, whether autoscroll is following the
- * stream, and the "back to bottom" visibility. All data and side effects come
- * in through parameters.
+ * Several conversations can generate at once: [isGenerating] describes the one
+ * on screen, [otherRunningCount] the others (shown as a tappable pill that
+ * opens the drawer). The draft is kept per conversation via [draftKey] /
+ * [initialDraft] / [onDraftChange].
  */
 @Composable
 fun ChatScreen(
@@ -133,6 +144,12 @@ fun ChatScreen(
     contextUsage: ContextUsage = ContextUsage(),
     compacting: Boolean = false,
     contextSummary: String? = null,
+    /** Number of *other* conversations that are generating right now. */
+    otherRunningCount: Int = 0,
+    /** Identity of the open conversation; a new key swaps in that conversation's draft. */
+    draftKey: String? = null,
+    initialDraft: String = "",
+    onDraftChange: (String) -> Unit = {},
     suggestions: List<ChatSuggestion> = defaultChatSuggestions,
     onSend: (String) -> Unit = {},
     onStop: () -> Unit = {},
@@ -150,8 +167,10 @@ fun ChatScreen(
     onCompactContext: () -> Unit = {},
     onClearContextSummary: () -> Unit = {},
 ) {
-    var draft by rememberSaveable { mutableStateOf("") }
+    var draft by rememberSaveable(draftKey) { mutableStateOf(initialDraft) }
     var contextSheetVisible by remember { mutableStateOf(false) }
+    val latestOnDraftChange by rememberUpdatedState(onDraftChange)
+    LaunchedEffect(draft) { latestOnDraftChange(draft) }
     var autoFollow by remember { mutableStateOf(true) }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -172,6 +191,13 @@ fun ChatScreen(
                     last.offset + last.size <= layoutInfo.viewportEndOffset + 24
             }
         }
+    }
+    val showTopDivider by remember { derivedStateOf { listState.canScrollBackward } }
+
+    // Switching conversation: follow the new transcript from its bottom.
+    LaunchedEffect(draftKey) {
+        autoFollow = true
+        if (visibleMessages.isNotEmpty()) listState.scrollToItem(visibleMessages.size)
     }
     LaunchedEffect(isAtBottom) {
         if (isAtBottom) autoFollow = true
@@ -219,14 +245,40 @@ fun ChatScreen(
         containerColor = MaterialTheme.colorScheme.background,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
-            ChatTopBar(
-                title = conversationTitle,
-                modelLabel = modelLabel,
-                onOpenDrawer = onOpenDrawer,
-                onNewChat = onNewChat,
-                onOpenModelPicker = onOpenModelPicker,
-                onOpenSettings = onOpenSettings,
-            )
+            Column {
+                ChatTopBar(
+                    title = conversationTitle,
+                    modelLabel = modelLabel,
+                    isGenerating = isGenerating,
+                    otherRunningCount = otherRunningCount,
+                    onOpenDrawer = onOpenDrawer,
+                    onNewChat = onNewChat,
+                    onOpenModelPicker = onOpenModelPicker,
+                    onOpenSettings = onOpenSettings,
+                )
+                // 2dp status strip: progress while replying, hairline when scrolled.
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(2.dp),
+                ) {
+                    if (isGenerating) {
+                        LinearProgressIndicator(
+                            modifier = Modifier.fillMaxWidth(),
+                            color = MaterialTheme.colorScheme.primary,
+                            trackColor = Color.Transparent,
+                        )
+                    } else if (showTopDivider) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(1.dp)
+                                .align(Alignment.BottomCenter)
+                                .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+                        )
+                    }
+                }
+            }
         },
         bottomBar = {
             Composer(
@@ -243,6 +295,7 @@ fun ChatScreen(
                 contextUsage = contextUsage,
                 compacting = compacting,
                 onContextClick = { contextSheetVisible = true },
+                placeholder = if (isGenerating) "正在回复…可新建会话并行处理" else "给 Kujira 发消息…",
             )
         },
     ) { innerPadding ->
@@ -353,6 +406,8 @@ fun ChatScreen(
 private fun ChatTopBar(
     title: String,
     modelLabel: String,
+    isGenerating: Boolean,
+    otherRunningCount: Int,
     onOpenDrawer: () -> Unit,
     onNewChat: () -> Unit,
     onOpenModelPicker: () -> Unit,
@@ -384,33 +439,51 @@ private fun ChatTopBar(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            Row(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(8.dp))
-                    .clickable(onClick = onOpenModelPicker)
-                    .padding(vertical = 2.dp, horizontal = 1.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Box(
-                    Modifier
-                        .size(5.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primary)
-                )
-                Spacer(Modifier.width(5.dp))
-                Text(
-                    text = modelLabel,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Icon(
-                    imageVector = Icons.Outlined.ArrowDropDown,
-                    contentDescription = null,
-                    modifier = Modifier.size(14.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable(onClick = onOpenModelPicker)
+                        .padding(vertical = 2.dp, horizontal = 1.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (isGenerating) {
+                        PulsingDot(color = MaterialTheme.colorScheme.primary, size = 5.dp)
+                    } else {
+                        Box(
+                            Modifier
+                                .size(5.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.primary)
+                        )
+                    }
+                    Spacer(Modifier.width(5.dp))
+                    Text(
+                        text = modelLabel,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Icon(
+                        imageVector = Icons.Outlined.ArrowDropDown,
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    if (isGenerating) {
+                        Text(
+                            text = "回复中",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            maxLines = 1,
+                        )
+                    }
+                }
+                if (otherRunningCount > 0) {
+                    Spacer(Modifier.width(8.dp))
+                    RunningElsewherePill(count = otherRunningCount, onClick = onOpenDrawer)
+                }
             }
         }
         KujiraIconButton(
@@ -430,11 +503,68 @@ private fun ChatTopBar(
     }
 }
 
+/** Tappable "N 个会话运行中" pill: other conversations are still working. */
+@Composable
+private fun RunningElsewherePill(count: Int, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(50),
+        color = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.14f),
+        contentColor = MaterialTheme.colorScheme.tertiary,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            PulsingDot(color = MaterialTheme.colorScheme.tertiary, size = 5.dp)
+            Spacer(Modifier.width(5.dp))
+            Text(
+                text = "另有 $count 个运行中",
+                style = MaterialTheme.typography.labelSmall,
+                maxLines = 1,
+            )
+        }
+    }
+}
+
+/** A small dot that breathes; used wherever something is live. */
+@Composable
+private fun PulsingDot(color: Color, size: Dp) {
+    val transition = rememberInfiniteTransition(label = "pulsing-dot")
+    val alpha by transition.animateFloat(
+        initialValue = 0.35f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 700),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "pulsing-dot-alpha",
+    )
+    Box(
+        Modifier
+            .size(size)
+            .clip(CircleShape)
+            .background(color.copy(alpha = alpha))
+    )
+}
+
+private fun greetingForNow(): String {
+    val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
+    return when {
+        hour < 5 -> "夜深了"
+        hour < 11 -> "早上好"
+        hour < 14 -> "中午好"
+        hour < 18 -> "下午好"
+        else -> "晚上好"
+    }
+}
+
 @Composable
 private fun ChatEmptyState(
     suggestions: List<ChatSuggestion>,
     onSuggestionClick: (ChatSuggestion) -> Unit,
 ) {
+    val greeting = remember { greetingForNow() }
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -456,7 +586,7 @@ private fun ChatEmptyState(
         )
         Spacer(Modifier.height(10.dp))
         Text(
-            text = "今天想让我帮你做点什么？",
+            text = "$greeting，今天想让我帮你做点什么？",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
@@ -484,6 +614,13 @@ private fun ChatEmptyState(
                 }
             }
         }
+        Spacer(Modifier.height(20.dp))
+        Text(
+            text = "每个会话独立运行：新建会话，就能并行处理多个任务",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+            textAlign = TextAlign.Center,
+        )
         Spacer(Modifier.height(32.dp))
     }
 }
@@ -500,6 +637,7 @@ private fun SuggestionCard(
         shape = RoundedCornerShape(16.dp),
         color = MaterialTheme.colorScheme.surfaceContainerLow,
         contentColor = MaterialTheme.colorScheme.onSurface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
             Icon(
@@ -537,6 +675,23 @@ private fun ChatScreenDarkPreview() {
             conversationTitle = "服务器状态检查",
             modelLabel = "DeepSeek V3.2",
             pluginsLabel = "2 个插件已连接",
+            otherRunningCount = 1,
+            onOpenModelPicker = {},
+            onOpenSettings = {},
+        )
+    }
+}
+
+@Preview(name = "Chat generating dark", showBackground = true, widthDp = 400, heightDp = 860)
+@Composable
+private fun ChatGeneratingDarkPreview() {
+    KujiraTheme(darkTheme = true) {
+        ChatScreen(
+            messages = previewMessages,
+            conversationTitle = "服务器状态检查",
+            modelLabel = "DeepSeek V3.2",
+            isGenerating = true,
+            otherRunningCount = 2,
             onOpenModelPicker = {},
             onOpenSettings = {},
         )

@@ -1,5 +1,6 @@
 package app.kujira.android.ui.chat
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -23,14 +24,20 @@ import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.outlined.ArrowDropDown
 import androidx.compose.material.icons.outlined.Bolt
 import androidx.compose.material.icons.rounded.Stop
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -48,6 +55,11 @@ import kotlin.math.roundToInt
  * Chat input: model chip row on top, a soft 24dp composer surface with a
  * self-growing multiline text field (up to [maxLines]) and a circular
  * send/stop button.
+ *
+ * The surface gets a hairline outline that lights up in the accent colour
+ * while the field is focused, and the stop button shows a spinning ring while
+ * a reply is being generated so "something is happening" is visible at the
+ * exact spot the user is looking at.
  *
  * Pure UI: the draft is hoisted so the Lead can store it in a ViewModel if
  * wanted. Haptic feedback fires on send and stop.
@@ -75,6 +87,7 @@ fun Composer(
 ) {
     val haptic = LocalHapticFeedback.current
     val canSend = value.isNotBlank() && !isGenerating
+    var focused by remember { mutableStateOf(false) }
 
     Column(
         modifier = modifier
@@ -140,6 +153,13 @@ fun Composer(
             color = MaterialTheme.colorScheme.surfaceContainerHigh,
             tonalElevation = 0.dp,
             shadowElevation = 0.dp,
+            border = BorderStroke(
+                width = 1.dp,
+                color = when {
+                    focused -> MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)
+                    else -> MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
+                },
+            ),
         ) {
             Row(
                 modifier = Modifier
@@ -153,7 +173,8 @@ fun Composer(
                     modifier = Modifier
                         .weight(1f)
                         .defaultMinSize(minHeight = 36.dp)
-                        .padding(vertical = 8.dp),
+                        .padding(vertical = 8.dp)
+                        .onFocusChanged { focused = it.isFocused },
                     textStyle = MaterialTheme.typography.bodyLarge.copy(
                         color = MaterialTheme.colorScheme.onSurface,
                     ),
@@ -236,6 +257,14 @@ private fun ComposerActionButton(
             },
         contentAlignment = Alignment.Center,
     ) {
+        if (isGenerating) {
+            // Spinning ring around the stop square: the reply is still coming.
+            CircularProgressIndicator(
+                modifier = Modifier.size(40.dp),
+                color = contentColor.copy(alpha = 0.45f),
+                strokeWidth = 2.dp,
+            )
+        }
         Icon(
             imageVector = if (isGenerating) Icons.Rounded.Stop else Icons.AutoMirrored.Rounded.Send,
             contentDescription = if (isGenerating) "停止生成" else "发送",
