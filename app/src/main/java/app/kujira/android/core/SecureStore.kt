@@ -21,11 +21,27 @@ class SecureStore(context: Context) {
 
     private val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
+    /**
+     * Decrypted values are cached for the life of the process. Android Keystore
+     * can be briefly unavailable during a cold start; caching avoids repeated
+     * unwrap failures turning a configured key into "未配置".
+     */
+    private val cache = mutableMapOf<String, String>()
+
     private fun keyStore(): KeyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
 
-    private fun secretKey(): SecretKey {
+    private fun existingSecretKey(): SecretKey? {
         val ks = keyStore()
-        (ks.getEntry(KEY_ALIAS, null) as? KeyStore.SecretKeyEntry)?.let { return it.secretKey }
+        return (ks.getEntry(KEY_ALIAS, null) as? KeyStore.SecretKeyEntry)?.secretKey
+    }
+
+    /**
+     * Never rotate the master key while decrypting. If the alias is missing
+     * temporarily, creating a new key would make every existing ciphertext
+     * unreadable. Only [put] is allowed to generate a missing key.
+     */
+    private fun createSecretKey(): SecretKey {
+        existingSecretKey()?.let { return it }
         val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, ANDROID_KEYSTORE)
         generator.init(
             KeyGenParameterSpec.Builder(
@@ -42,39 +58,57 @@ class SecureStore(context: Context) {
 
     fun put(key: String, value: String?) {
         if (value == null) {
-            prefs.edit().remove(key).apply()
+            cache.remove(key)
+            // commit(), not apply(): a quick swipe from recents must not lose a
+            // freshly entered API key before the async write hits disk.
+            prefs.edit().remove(key).commit()
             return
         }
         val blob = runCatching {
             val cipher = Cipher.getInstance(TRANSFORMATION)
-            cipher.init(Cipher.ENCRYPT_MODE, secretKey())
+            cipher.init(Cipher.ENCRYPT_MODE, createSecretKey())
             val ciphertext = cipher.doFinal(value.toByteArray(Charsets.UTF_8))
             "enc:" + Base64.encodeToString(cipher.iv + ciphertext, Base64.NO_WRAP)
         }.getOrElse {
             // Fallback for runtimes without a usable AndroidKeyStore provider.
             "plain:" + Base64.encodeToString(value.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
         }
-        prefs.edit().putString(key, blob).apply()
+        cache[key] = value
+        prefs.edit().putString(key, blob).commit()
     }
 
     fun get(key: String): String? {
+        cache[key]?.let { return it }
         val encoded = prefs.getString(key, null) ?: return null
         if (encoded.startsWith("plain:")) {
             return runCatching {
                 String(Base64.decode(encoded.removePrefix("plain:"), Base64.NO_WRAP), Charsets.UTF_8)
-            }.getOrNull()
+            }.getOrNull()?.also { cache[key] = it }
         }
-        return runCatching {
-            val blob = Base64.decode(encoded.removePrefix("enc:"), Base64.NO_WRAP)
-            val iv = blob.copyOfRange(0, IV_BYTES)
-            val ciphertext = blob.copyOfRange(IV_BYTES, blob.size)
-            val cipher = Cipher.getInstance(TRANSFORMATION)
-            cipher.init(Cipher.DECRYPT_MODE, secretKey(), GCMParameterSpec(TAG_BITS, iv))
-            String(cipher.doFinal(ciphertext), Charsets.UTF_8)
-        }.getOrNull()
+        // Keystore can be transiently unavailable right after process start;
+        // retry once before reporting the key as missing.
+        repeat(2) {
+            val value = runCatching {
+                val blob = Base64.decode(encoded.removePrefix("enc:"), Base64.NO_WRAP)
+                val iv = blob.copyOfRange(0, IV_BYTES)
+                val ciphertext = blob.copyOfRange(IV_BYTES, blob.size)
+                val keyMaterial = existingSecretKey() ?: return@runCatching null
+                val cipher = Cipher.getInstance(TRANSFORMATION)
+                cipher.init(Cipher.DECRYPT_MODE, keyMaterial, GCMParameterSpec(TAG_BITS, iv))
+                String(cipher.doFinal(ciphertext), Charsets.UTF_8)
+            }.getOrNull()
+            if (value != null) {
+                cache[key] = value
+                return value
+            }
+        }
+        return null
     }
 
-    fun remove(key: String) = prefs.edit().remove(key).apply()
+    fun remove(key: String) {
+        cache.remove(key)
+        prefs.edit().remove(key).commit()
+    }
 
     fun has(key: String): Boolean = prefs.contains(key)
 

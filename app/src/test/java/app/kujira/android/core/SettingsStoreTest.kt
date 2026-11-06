@@ -2,6 +2,7 @@ package app.kujira.android.core
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -47,6 +48,21 @@ class SettingsStoreTest {
         val upgraded = SettingsStore(context)
         assertTrue(upgraded.providers.value.any { it.id == "opencode-zen" })
         assertTrue(upgraded.providers.value.any { it.id == "opencode-go" })
+    }
+
+    @Test
+    fun `active model selection survives a new store instance`() {
+        val store = SettingsStore(context)
+        store.updateSettings {
+            it.copy(
+                activeProviderId = "opencode-go",
+                activeModelId = "deepseek-v4.1-flash"
+            )
+        }
+
+        val reopened = SettingsStore(context)
+        assertEquals("opencode-go", reopened.settings.value.activeProviderId)
+        assertEquals("deepseek-v4.1-flash", reopened.settings.value.activeModelId)
     }
 
     @Test

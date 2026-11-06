@@ -66,7 +66,11 @@ object TokenEstimator {
                 }
 
                 is ContentBlock.ToolResult -> {
-                    total += estimate(block.toolName) + estimate(block.output)
+                    // UI projection copies results onto the assistant turn; the
+                    // TOOL turn is the canonical copy, so count it once.
+                    if (message.role == Role.TOOL) {
+                        total += estimate(block.toolName) + estimate(block.output)
+                    }
                 }
 
                 is ContentBlock.Text, is ContentBlock.Reasoning -> Unit

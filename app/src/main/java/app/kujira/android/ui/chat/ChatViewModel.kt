@@ -18,6 +18,7 @@ import app.kujira.android.domain.ChatEvent
 import app.kujira.android.domain.ChatRequest
 import app.kujira.android.domain.ContextCompactionException
 import app.kujira.android.domain.ContextUsage
+import app.kujira.android.domain.mergeToolResults
 import app.kujira.android.domain.TokenEstimator
 import app.kujira.android.domain.ToolConfirmer
 import kotlinx.coroutines.CancellationException
@@ -140,7 +141,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private suspend fun openConversation(conversation: Conversation) {
         activeConversationId = conversation.id
         settingsStore.updateSettings { it.copy(lastConversationId = conversation.id) }
-        val messages = db.messagesOf(conversation.id)
+        val messages = mergeToolResults(db.messagesOf(conversation.id))
         _state.update {
             it.copy(activeConversation = conversation, messages = messages, error = null)
         }
@@ -514,9 +515,21 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     fun deleteMessage(message: Message) {
         viewModelScope.launch {
-            db.deleteMessage(message.id)
+            val all = _state.value.messages
+            val index = all.indexOfFirst { it.id == message.id }
+            val toDelete = mutableSetOf(message.id)
+            if (message.role == Role.ASSISTANT && index >= 0) {
+                var next = index + 1
+                while (next < all.size && all[next].role == Role.TOOL) {
+                    toDelete += all[next].id
+                    next++
+                }
+            }
+            toDelete.forEach { db.deleteMessage(it) }
+
             val conversation = _state.value.activeConversation
-            val summaryInvalidated = conversation?.contextSummaryThrough == message.id
+            val summaryInvalidated = conversation?.contextSummaryThrough
+                ?.let { it in toDelete } == true
             if (conversation != null && summaryInvalidated) {
                 val cleared = conversation.copy(
                     contextSummary = null,
@@ -527,7 +540,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 _state.update { it.copy(activeConversation = cleared) }
             }
             _state.update { state ->
-                state.copy(messages = state.messages.filterNot { it.id == message.id })
+                state.copy(messages = state.messages.filterNot { it.id in toDelete })
             }
             refreshContextUsage()
         }
@@ -678,7 +691,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
         _state.update { state ->
             state.copy(
-                messages = state.messages.filterNot { it.id == streaming.id } + event.messages,
+                messages = mergeToolResults(state.messages.filterNot { it.id == streaming.id } + event.messages),
                 isGenerating = false,
                 sending = false,
                 activeConversation = updated,
@@ -706,7 +719,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         db.upsertConversation(conversation.copy(updatedAt = System.currentTimeMillis()))
         _state.update {
             it.copy(
-                messages = it.messages.filterNot { m -> m.id == streaming.id } + failed,
+                messages = mergeToolResults(it.messages.filterNot { m -> m.id == streaming.id } + failed),
                 isGenerating = false,
                 sending = false,
                 error = event.message

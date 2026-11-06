@@ -6,9 +6,12 @@ import android.os.Looper
 import android.view.View
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.asAndroidBitmap
 import app.kujira.android.data.model.Conversation
 import app.kujira.android.data.model.PluginConfig
@@ -19,7 +22,11 @@ import app.kujira.android.domain.ContextUsage
 import app.kujira.android.domain.UsageBucket
 import app.kujira.android.domain.UsageReport
 import app.kujira.android.ui.chat.ChatScreen
+import app.kujira.android.ui.chat.ToolCallCard
+import app.kujira.android.ui.chat.ToolCallState
 import app.kujira.android.ui.chat.previewMessages
+import app.kujira.android.ui.chat.previewToolCall
+import app.kujira.android.ui.chat.previewToolResult
 import app.kujira.android.ui.settings.AuditLogScreen
 import app.kujira.android.ui.settings.ProviderListScreen
 import app.kujira.android.ui.settings.ProviderSettingsScreen
@@ -83,6 +90,27 @@ class ScreenshotTest {
     }
 
     @Test
+    fun toolResultDark() = render("tool-result-dark", dark = true, sizeDp = 891) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            ToolCallCard(
+                call = previewToolCall(
+                    name = "sentinel_exec",
+                    argumentsJson = """{"host_id":"prod-01","command":"df -h"}"""
+                ),
+                result = previewToolResult(
+                    callId = "call-sentinel_exec",
+                    toolName = "sentinel_exec",
+                    output = "Filesystem      Size  Used Avail Use% Mounted on\n" +
+                        "/dev/vda1        40G   12G   26G  32% /\n" +
+                        "/dev/vdb1       200G   84G  106G  45% /data"
+                ),
+                state = ToolCallState.SUCCESS,
+                initiallyExpanded = true,
+            )
+        }
+    }
+
+    @Test
     fun chatLight() = render("chat-light", dark = false, sizeDp = 891) {
         ChatScreen(
             messages = previewMessages,
@@ -124,7 +152,7 @@ class ScreenshotTest {
                     preset = "sentinelx"
                 )
             ),
-            appVersion = "1.2.1",
+            appVersion = "1.2.2",
             onBack = null
         )
     }
@@ -135,7 +163,7 @@ class ScreenshotTest {
             settings = app.kujira.android.data.model.AppSettings(themeMode = ThemeMode.LIGHT),
             providers = previewProviders,
             plugins = emptyList(),
-            appVersion = "1.2.1",
+            appVersion = "1.2.2",
             onBack = null
         )
     }

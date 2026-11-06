@@ -34,7 +34,7 @@ class SettingsStore(context: Context) {
     fun updateSettings(transform: (AppSettings) -> AppSettings) {
         val next = transform(_settings.value)
         _settings.value = next
-        prefs.edit().putString(KEY_SETTINGS, json.encodeToString(AppSettings.serializer(), next)).apply()
+        prefs.edit().putString(KEY_SETTINGS, json.encodeToString(AppSettings.serializer(), next)).commit()
     }
 
     private fun loadSettings(): AppSettings {
@@ -51,7 +51,7 @@ class SettingsStore(context: Context) {
         prefs.edit()
             .putString(KEY_PROVIDERS, json.encodeToString(kotlinx.serialization.builtins.ListSerializer(ProviderConfig.serializer()), list))
             .putStringSet(KEY_SEEDED_PROVIDERS, seeded)
-            .apply()
+            .commit()
     }
 
     fun upsertProvider(provider: ProviderConfig) {
@@ -76,7 +76,7 @@ class SettingsStore(context: Context) {
                     )
                 )
                 .putStringSet(KEY_SEEDED_PROVIDERS, ProviderPresets.core.map { it.id }.toSet())
-                .apply()
+                .commit()
             return defaults
         }
 
@@ -105,7 +105,7 @@ class SettingsStore(context: Context) {
                     )
                 )
                 .putStringSet(KEY_SEEDED_PROVIDERS, nextSeeded)
-                .apply()
+                .commit()
         }
         return merged
     }
@@ -116,7 +116,7 @@ class SettingsStore(context: Context) {
         _plugins.value = list
         prefs.edit()
             .putString(KEY_PLUGINS, json.encodeToString(kotlinx.serialization.builtins.ListSerializer(PluginConfig.serializer()), list))
-            .apply()
+            .commit()
     }
 
     fun upsertPlugin(plugin: PluginConfig) {
@@ -125,7 +125,7 @@ class SettingsStore(context: Context) {
         if (index >= 0) next[index] = plugin else next.add(plugin)
         savePlugins(next)
         if (plugin.builtin && plugin.preset != null) {
-            prefs.edit().putString(KEY_PRESET_SEEDED, "1").apply()
+            prefs.edit().putString(KEY_PRESET_SEEDED, "1").commit()
         }
     }
 

@@ -65,6 +65,15 @@ class AppContainerTest {
     }
 
     @Test
+    fun secureStoreSurvivesNewInstance() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        SecureStore(context).put("test:persisted", "oc_sk_persisted")
+        // A new instance simulates a cold app start / process death.
+        assertEquals("oc_sk_persisted", SecureStore(context).get("test:persisted"))
+        SecureStore(context).remove("test:persisted")
+    }
+
+    @Test
     fun toolPoliciesResolve() {
         val container = container()
         val tool = app.kujira.android.data.model.ToolDescriptor(

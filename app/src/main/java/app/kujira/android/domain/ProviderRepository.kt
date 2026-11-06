@@ -190,14 +190,27 @@ class ProviderRepository(
      */
     fun ensureActiveSelection() {
         val current = settings.value
-        val provider = current.activeProviderId?.let(::get)?.takeIf { it.enabled }
+        val active = current.activeProviderId?.let(::get)?.takeIf { it.enabled }
+        val keyed = providers.value.filter { it.enabled && hasApiKey(it.id) }
+
+        // Self-heal the common "all models unusable" state: the saved provider
+        // is enabled but has no key (often the default DeepSeek), while another
+        // configured provider is ready. Prefer the one that can actually chat.
+        val provider = when {
+            active == null -> keyed.firstOrNull() ?: providers.value.firstOrNull { it.enabled }
+            !hasApiKey(active.id) && keyed.isNotEmpty() -> keyed.first()
+            else -> active
+        }
         if (provider == null) {
-            val next = providers.value.firstOrNull { it.enabled }
-            setActive(next?.id, next?.defaultModel()?.id)
+            setActive(null, null)
             return
         }
-        val model = current.activeModelId?.takeIf { id -> provider.models.any { it.id == id } }
-            ?: provider.defaultModel()?.id
+        val model = if (provider.id == current.activeProviderId) {
+            current.activeModelId?.takeIf { id -> provider.models.any { it.id == id } }
+                ?: provider.defaultModel()?.id
+        } else {
+            provider.defaultModel()?.id
+        }
         if (model != current.activeModelId || provider.id != current.activeProviderId) {
             setActive(provider.id, model)
         }
