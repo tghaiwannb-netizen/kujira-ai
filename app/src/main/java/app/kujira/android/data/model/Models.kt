@@ -55,8 +55,57 @@ sealed interface ContentBlock {
 data class Usage(
     val promptTokens: Int = 0,
     val completionTokens: Int = 0,
-    val totalTokens: Int = 0
-)
+    val totalTokens: Int = 0,
+    /** Provider-reported reasoning tokens, when available. */
+    val reasoningTokens: Int? = null,
+    val cacheReadTokens: Int? = null,
+    val cacheWriteTokens: Int? = null,
+    /**
+     * Actual USD cost reported by the provider (OpenCode gives this directly).
+     * Null means "not reported"; the UI may estimate from model pricing.
+     */
+    val costUsd: Double? = null,
+    /** OpenCode billing source: free / balance / go / go-plus / byok. */
+    val billingSource: String? = null,
+    /** OpenCode Go: USD counted against the plan allowance. */
+    val allowanceUsd: Double? = null
+) {
+    val hasDetail: Boolean
+        get() = cacheReadTokens != null || cacheWriteTokens != null ||
+            reasoningTokens != null || costUsd != null || billingSource != null
+
+    operator fun plus(other: Usage): Usage = Usage(
+        promptTokens = promptTokens + other.promptTokens,
+        completionTokens = completionTokens + other.completionTokens,
+        totalTokens = totalTokens + other.totalTokens,
+        reasoningTokens = if (reasoningTokens == null && other.reasoningTokens == null) {
+            null
+        } else {
+            (reasoningTokens ?: 0) + (other.reasoningTokens ?: 0)
+        },
+        cacheReadTokens = if (cacheReadTokens == null && other.cacheReadTokens == null) {
+            null
+        } else {
+            (cacheReadTokens ?: 0) + (other.cacheReadTokens ?: 0)
+        },
+        cacheWriteTokens = if (cacheWriteTokens == null && other.cacheWriteTokens == null) {
+            null
+        } else {
+            (cacheWriteTokens ?: 0) + (other.cacheWriteTokens ?: 0)
+        },
+        costUsd = if (costUsd == null && other.costUsd == null) {
+            null
+        } else {
+            (costUsd ?: 0.0) + (other.costUsd ?: 0.0)
+        },
+        billingSource = other.billingSource ?: billingSource,
+        allowanceUsd = if (allowanceUsd == null && other.allowanceUsd == null) {
+            null
+        } else {
+            (allowanceUsd ?: 0.0) + (other.allowanceUsd ?: 0.0)
+        }
+    )
+}
 
 @Serializable
 data class Message(
@@ -89,7 +138,14 @@ data class Conversation(
     val providerId: String? = null,
     val modelId: String? = null,
     val systemPrompt: String? = null,
-    val archived: Boolean = false
+    val archived: Boolean = false,
+    /**
+     * Non-destructive context compaction: older messages stay in the
+     * transcript, but requests only send this summary plus everything after
+     * [contextSummaryThrough].
+     */
+    val contextSummary: String? = null,
+    val contextSummaryThrough: String? = null
 )
 
 // ---------------------------------------------------------------------------
@@ -124,7 +180,11 @@ data class ModelInfo(
      * OpenAI-compatible payload omits both instead of failing the request.
      */
     val supportsTemperature: Boolean = true,
-    val maxOutputTokens: Int? = null
+    val maxOutputTokens: Int? = null,
+    /** Optional pricing, in USD per 1M tokens, used for cost estimates. */
+    val inputPricePerMillion: Double? = null,
+    val outputPricePerMillion: Double? = null,
+    val cacheReadPricePerMillion: Double? = null
 )
 
 @Serializable

@@ -7,6 +7,7 @@ import app.kujira.android.data.ExportService
 import app.kujira.android.data.db.AppDatabase
 import app.kujira.android.domain.ChatEngine
 import app.kujira.android.domain.ConfirmingToolExecutor
+import app.kujira.android.domain.ContextCompactor
 import app.kujira.android.domain.McpToolExecutor
 import app.kujira.android.domain.ProviderRepository
 import app.kujira.android.net.llm.LlmRouter
@@ -48,6 +49,8 @@ class AppContainer(context: Context) {
     // -- LLM ----------------------------------------------------------------
 
     val llmRouter: LlmRouter = LlmRouter(httpClient)
+
+    val contextCompactor: ContextCompactor = ContextCompactor(llmRouter)
 
     val modelCatalogClient: ModelCatalogClient = ModelCatalogClient(controlClient)
 

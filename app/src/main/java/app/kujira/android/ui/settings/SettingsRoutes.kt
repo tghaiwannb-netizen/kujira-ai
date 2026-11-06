@@ -17,8 +17,12 @@ import app.kujira.android.data.model.AppSettings
 import app.kujira.android.data.model.ModelInfo
 import app.kujira.android.data.model.ProviderConfig
 import app.kujira.android.data.model.ProviderKind
+import app.kujira.android.data.model.ToolAudit
 import app.kujira.android.di.AppContainer
 import app.kujira.android.domain.ModelSyncResult
+import app.kujira.android.domain.UsageAggregator
+import app.kujira.android.domain.UsageReport
+import app.kujira.android.domain.toModelPrice
 import kotlinx.coroutines.launch
 
 /*
@@ -32,7 +36,9 @@ fun RootSettingsRoute(
     onBack: () -> Unit,
     onNavigateAppearance: () -> Unit,
     onNavigateModels: () -> Unit,
+    onNavigateUsage: () -> Unit,
     onNavigatePlugins: () -> Unit,
+    onNavigateAudit: () -> Unit,
     onNavigateData: () -> Unit,
     onNavigateAbout: () -> Unit
 ) {
@@ -50,7 +56,9 @@ fun RootSettingsRoute(
         },
         onNavigateAppearance = onNavigateAppearance,
         onNavigateModels = onNavigateModels,
+        onNavigateUsage = onNavigateUsage,
         onNavigatePlugins = onNavigatePlugins,
+        onNavigateAudit = onNavigateAudit,
         onNavigateData = onNavigateData,
         onNavigateAbout = onNavigateAbout
     )
@@ -167,6 +175,7 @@ fun ProviderRoute(
         baseUrl = baseUrl,
         apiKey = apiKey,
         apiKeyConfigured = keyConfigured,
+        enabled = enabled,
         modelsText = modelsText,
         knownModels = knownModels,
         modelsUrl = modelsUrl,
@@ -291,6 +300,54 @@ fun ProviderListRoute(
 }
 
 @Composable
+fun UsageRoute(container: AppContainer, onBack: () -> Unit) {
+    val providers by container.providerRepository.providers.collectAsStateWithLifecycle()
+    var report by remember { mutableStateOf(UsageReport()) }
+    var loading by remember { mutableStateOf(true) }
+
+    LaunchedEffect(providers) {
+        loading = true
+        val prices = buildMap {
+            for (provider in providers) {
+                for (model in provider.models) {
+                    val price = model.toModelPrice() ?: continue
+                    put(UsageAggregator.priceKey(provider.id, model.id), price)
+                    putIfAbsent(UsageAggregator.priceKey(null, model.id), price)
+                }
+            }
+        }
+        report = UsageAggregator.aggregate(container.database.usageRows(), prices)
+        loading = false
+    }
+
+    val providerNames = remember(providers) { providers.associate { it.id to it.name } }
+    val modelNames = remember(providers) {
+        buildMap {
+            for (provider in providers) {
+                for (model in provider.models) {
+                    put(UsageAggregator.priceKey(provider.id, model.id), model.displayName)
+                }
+            }
+        }
+    }
+
+    UsageSettingsScreen(
+        report = report,
+        loading = loading,
+        onBack = onBack,
+        providerName = { id -> id?.let { providerNames[it] } ?: "未知 Provider" },
+        modelName = { providerId, modelId ->
+            modelId?.let {
+                modelNames[UsageAggregator.priceKey(providerId, it)]
+                    ?: providers.firstOrNull { p -> p.id == providerId }
+                        ?.models?.firstOrNull { m -> m.id == it }?.displayName
+                    ?: it
+            } ?: "未知模型"
+        }
+    )
+}
+
+@Composable
 fun PluginSettingsRoute(container: AppContainer, onBack: () -> Unit) {
     val plugins by container.settingsStore.plugins.collectAsStateWithLifecycle()
     PluginsSettingsScreen(
@@ -301,6 +358,32 @@ fun PluginSettingsRoute(container: AppContainer, onBack: () -> Unit) {
         }
     )
     LaunchedEffect(Unit) { container.mcpManager.connectEnabled() }
+}
+
+@Composable
+fun AuditRoute(container: AppContainer, onBack: () -> Unit) {
+    var audits by remember { mutableStateOf(emptyList<ToolAudit>()) }
+    var loading by remember { mutableStateOf(true) }
+    var refreshKey by remember { mutableStateOf(0) }
+    val scope = rememberCoroutineScope()
+
+    LaunchedEffect(refreshKey) {
+        loading = true
+        audits = container.database.audits(limit = 500)
+        loading = false
+    }
+
+    AuditLogScreen(
+        audits = audits,
+        loading = loading,
+        onBack = onBack,
+        onClear = {
+            scope.launch {
+                container.database.clearAudits()
+                refreshKey += 1
+            }
+        }
+    )
 }
 
 @Composable

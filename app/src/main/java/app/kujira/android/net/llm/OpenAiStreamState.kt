@@ -45,10 +45,34 @@ internal class OpenAiStreamState(private val json: Json = LlmJson) {
         root["usage"].asObject()?.let { raw ->
             val prompt = raw.intOf("prompt_tokens", "input_tokens") ?: 0
             val completion = raw.intOf("completion_tokens", "output_tokens") ?: 0
+            val opencode = raw["opencode"].asObject()
+            val opencodeTokens = opencode?.get("tokens").asObject()
+            val promptDetails = raw["prompt_tokens_details"].asObject()
+            val completionDetails = raw["completion_tokens_details"].asObject()
+
+            val cacheRead = raw.intOf("cache_read_input_tokens", "prompt_cache_hit_tokens")
+                ?: promptDetails?.intOf("cached_tokens")
+                ?: opencodeTokens?.intOf("cache_read")
+            val cacheWrite5m = raw.intOf("cache_creation_input_tokens")
+                ?: opencodeTokens?.intOf("cache_write_5m")
+            val cacheWrite1h = opencodeTokens?.intOf("cache_write_1h")
+            val cacheWrite = when {
+                cacheWrite5m == null && cacheWrite1h == null -> null
+                else -> (cacheWrite5m ?: 0) + (cacheWrite1h ?: 0)
+            }
+            val reasoning = completionDetails?.intOf("reasoning_tokens")
+                ?: opencodeTokens?.intOf("reasoning")
+
             usage = Usage(
                 promptTokens = prompt,
                 completionTokens = completion,
-                totalTokens = raw.intOf("total_tokens") ?: (prompt + completion)
+                totalTokens = raw.intOf("total_tokens") ?: (prompt + completion),
+                reasoningTokens = reasoning,
+                cacheReadTokens = cacheRead,
+                cacheWriteTokens = cacheWrite,
+                costUsd = raw["cost"].asDouble(),
+                billingSource = opencode?.stringOf("billing_source"),
+                allowanceUsd = opencode?.get("allowance").asDouble()
             )
         }
 

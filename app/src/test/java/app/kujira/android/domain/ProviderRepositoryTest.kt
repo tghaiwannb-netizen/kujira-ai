@@ -91,6 +91,33 @@ class ProviderRepositoryTest {
     }
 
     @Test
+    fun `startup repairs a keyless active provider when another one is configured`() {
+        val repo = repository()
+        repo.saveApiKey("opencode-go", "oc_sk_test")
+        repo.setEnabled("opencode-go", true)
+        repo.setActive("deepseek", "deepseek-chat")
+
+        repo.ensureActiveSelection()
+
+        assertEquals("opencode-go", repo.settings.value.activeProviderId)
+        assertEquals("deepseek-v4.1-flash", repo.settings.value.activeModelId)
+    }
+
+    @Test
+    fun `startup keeps the active provider when it has a key`() {
+        val repo = repository()
+        repo.saveApiKey("opencode-go", "oc_sk_test")
+        repo.setEnabled("opencode-go", true)
+        repo.saveApiKey("deepseek", "sk_deepseek")
+        repo.setActive("deepseek", "deepseek-chat")
+
+        repo.ensureActiveSelection()
+
+        assertEquals("deepseek", repo.settings.value.activeProviderId)
+        assertEquals("deepseek-chat", repo.settings.value.activeModelId)
+    }
+
+    @Test
     fun `api key changes bump the revision`() {
         val repo = repository()
         val before = repo.keyRevision.value

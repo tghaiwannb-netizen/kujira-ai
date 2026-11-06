@@ -8,6 +8,7 @@
 
 <p align="center">
   <img src="docs/screenshots/chat-dark.png" width="260" alt="聊天" />
+  <img src="docs/screenshots/chat-context-dark.png" width="260" alt="上下文与用量" />
   <img src="docs/screenshots/chat-empty-dark.png" width="260" alt="空状态" />
   <img src="docs/screenshots/sentinelx-connected.png" width="260" alt="SentinelX" />
 </p>
@@ -19,6 +20,10 @@
   <img src="docs/screenshots/providers-dark.png" width="260" alt="模型供应商" />
   <img src="docs/screenshots/provider-editor-dark.png" width="260" alt="OpenCode Zen" />
 </p>
+<p align="center">
+  <img src="docs/screenshots/usage-dark.png" width="260" alt="用量与成本" />
+  <img src="docs/screenshots/audit-dark.png" width="260" alt="工具审计" />
+</p>
 
 ## 功能
 
@@ -26,6 +31,11 @@
   **OpenCode Go** / 任意 OpenAI 兼容端点
 - **模型供应商管理**：内置 12 个 provider 预设、启用开关、Key 状态、官方文档与取 Key 入口；
   **从服务端 `/models` 一键同步模型**，自动补全上下文窗口、工具 / 视觉 / 思考能力
+- **上下文预算**：输入区显示当前用量 / 模型窗口；占比过高自动压缩较早消息。
+  压缩不删除聊天记录，只让后续请求发送「摘要 + 最近消息」，也可手动压缩 / 清除摘要。
+- **用量与成本**：每条回复显示输入 / 输出 / 缓存 / 思考 tokens 与实际费用；
+  设置里按本月、全部、Provider、模型汇总，未返回费用时按同步到的模型价格估算。
+- **工具审计**：完整记录 MCP 调用的参数、结果、耗时与失败，支持筛选和清空。
 - **流式回复**：SSE 增量渲染、随时停止、Markdown（标题/列表/表格/代码块高亮/复制）
 - **会话管理**：本地 SQLite、分组历史、置顶、重命名、搜索、**JSON 导出/导入备份**
 - **消息操作**：复制、编辑并重发、重新生成、删除、失败重试
@@ -109,17 +119,19 @@ Key 存在 Keystore 加密的 SharedPreferences 里。
 
 ```
 data/model     领域模型（Conversation/Message/ContentBlock/PluginConfig/...）
-data/db        SQLite（conversations / messages / tool_audit）
+data/db        SQLite v2（conversations / messages / tool_audit，含上下文摘要字段）
 core           SecureStore（Keystore 加密）、SettingsStore、ProviderPresets（Provider 预设目录）
 net/llm        LlmClient 接口 + OpenAI 兼容 / Anthropic SSE 客户端 + LlmRouter
-               + ModelCatalogClient（`/models` 拉取、能力解析与合并）
+               + ModelCatalogClient（`/models` 拉取、能力/价格解析与合并）
 domain         ChatEngine（工具调用循环）、ToolExecutor 接口、ProviderRepository
+               ContextBudget / ContextCompactor（token 估算与非破坏压缩）
+               UsageAggregator（费用 / 缓存 / 模型维度汇总）
 net/mcp        JSON-RPC 2.0、Streamable HTTP 传输、McpClient、McpManager、OAuth PKCE
 net/sentinelx  SentinelX 预设/主机/工具分组/错误解释
 ui/chat        聊天界面、Markdown 渲染器、消息气泡、工具卡片
 ui/sessions    会话抽屉
 ui/plugins     插件管理与工具开关
-ui/settings    Provider 列表 / 预设选择 / 模型同步 / 设置
+ui/settings    Provider 列表 / 预设选择 / 模型同步 / 用量统计 / 工具审计 / 设置
 ui/theme       配色与字体（墨黑 + 陶土橙 / 暖纸）
 di             AppContainer（手写 DI）
 ```

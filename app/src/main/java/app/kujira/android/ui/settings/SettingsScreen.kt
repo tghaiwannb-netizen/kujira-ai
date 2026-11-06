@@ -10,7 +10,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.BarChart
 import androidx.compose.material.icons.outlined.Extension
+import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Lightbulb
 import androidx.compose.material.icons.outlined.Memory
@@ -44,12 +46,14 @@ fun SettingsScreen(
     modifier: Modifier = Modifier,
     providers: List<ProviderConfig> = emptyList(),
     plugins: List<PluginConfig> = emptyList(),
-    appVersion: String = "1.0.0",
+    appVersion: String = "1.2.2",
     onBack: (() -> Unit)? = null,
     onShowReasoningChange: (Boolean) -> Unit = {},
     onNavigateAppearance: () -> Unit = {},
     onNavigateModels: () -> Unit = {},
+    onNavigateUsage: () -> Unit = {},
     onNavigatePlugins: () -> Unit = {},
+    onNavigateAudit: () -> Unit = {},
     onNavigateData: () -> Unit = {},
     onNavigateAbout: () -> Unit = {},
 ) {
@@ -99,6 +103,13 @@ fun SettingsScreen(
                     icon = Icons.Outlined.Tune,
                     onClick = onNavigateModels,
                 )
+                SettingsDivider()
+                SettingsRow(
+                    title = "用量与成本",
+                    subtitle = "Token、缓存、费用统计",
+                    icon = Icons.Outlined.BarChart,
+                    onClick = onNavigateUsage,
+                )
             }
 
             SettingsSection(title = "插件") {
@@ -120,6 +131,13 @@ fun SettingsScreen(
                         onClick = onNavigatePlugins,
                     )
                 }
+                SettingsDivider()
+                SettingsRow(
+                    title = "工具审计日志",
+                    subtitle = "查看 MCP 调用、失败与耗时",
+                    icon = Icons.Outlined.History,
+                    onClick = onNavigateAudit,
+                )
             }
 
             SettingsSection(title = "数据") {

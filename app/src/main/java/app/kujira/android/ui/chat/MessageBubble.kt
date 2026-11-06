@@ -74,6 +74,9 @@ import app.kujira.android.data.model.ContentBlock
 import app.kujira.android.data.model.Message
 import app.kujira.android.data.model.MessageStatus
 import app.kujira.android.data.model.Role
+import app.kujira.android.data.model.Usage
+import app.kujira.android.domain.formatCost
+import app.kujira.android.domain.formatTokenCount
 import app.kujira.android.ui.chat.markdown.MarkdownText
 import app.kujira.android.ui.components.KujiraPreviewBox
 import app.kujira.android.ui.components.LoadingDots
@@ -346,6 +349,10 @@ private fun AssistantMessage(
                     }
                 }
 
+                if (!isStreaming && message.usage != null && message.usage.totalTokens > 0) {
+                    MessageUsageFooter(message.usage)
+                }
+
                 if (message.status == MessageStatus.STOPPED) {
                     Text(
                         text = "已停止生成",
@@ -374,6 +381,37 @@ private fun AssistantMessage(
             onDelete = { onDelete?.invoke(message) },
         )
     }
+}
+
+@Composable
+private fun MessageUsageFooter(usage: Usage) {
+    val parts = buildList {
+        if (usage.promptTokens > 0) add("输入 ${formatTokenCount(usage.promptTokens)}")
+        if (usage.completionTokens > 0) add("输出 ${formatTokenCount(usage.completionTokens)}")
+        usage.cacheReadTokens?.takeIf { it > 0 }?.let { add("缓存 ${formatTokenCount(it)}") }
+        usage.reasoningTokens?.takeIf { it > 0 }?.let { add("思考 ${formatTokenCount(it)}") }
+        val goBilling = usage.billingSource == "go" || usage.billingSource == "go-plus"
+        usage.costUsd?.takeIf { !(goBilling && it == 0.0) }?.let { add(formatCost(it)) }
+        billingLabel(usage.billingSource)?.let(::add)
+        usage.allowanceUsd?.takeIf { it > 0 }?.let { add("额度 ${formatCost(it)}") }
+    }
+    if (parts.isEmpty()) return
+    Text(
+        text = parts.joinToString(" · "),
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
+        modifier = Modifier.padding(top = 2.dp),
+    )
+}
+
+private fun billingLabel(source: String?): String? = when (source) {
+    null, "" -> null
+    "free" -> "免费"
+    "balance" -> "余额"
+    "go" -> "Go"
+    "go-plus" -> "Go Plus"
+    "byok" -> "BYOK"
+    else -> source
 }
 
 @Composable

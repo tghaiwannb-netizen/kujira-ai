@@ -29,6 +29,8 @@ internal class AnthropicStreamState(private val json: Json = LlmJson) {
     private val toolCalls = mutableListOf<LlmToolCall>()
     private var promptTokens = 0
     private var completionTokens = 0
+    private var cacheReadTokens: Int? = null
+    private var cacheWriteTokens: Int? = null
     private var stopReason: String? = null
 
     /** Set once `message_stop` has been observed. */
@@ -51,6 +53,8 @@ internal class AnthropicStreamState(private val json: Json = LlmJson) {
                     message["usage"].asObject()?.let { usage ->
                         promptTokens = usage.intOf("input_tokens") ?: promptTokens
                         completionTokens = usage.intOf("output_tokens") ?: completionTokens
+                        cacheReadTokens = usage.intOf("cache_read_input_tokens") ?: cacheReadTokens
+                        cacheWriteTokens = usage.intOf("cache_creation_input_tokens") ?: cacheWriteTokens
                     }
                 }
             }
@@ -144,7 +148,9 @@ internal class AnthropicStreamState(private val json: Json = LlmJson) {
             Usage(
                 promptTokens = promptTokens,
                 completionTokens = completionTokens,
-                totalTokens = promptTokens + completionTokens
+                totalTokens = promptTokens + completionTokens,
+                cacheReadTokens = cacheReadTokens,
+                cacheWriteTokens = cacheWriteTokens
             )
         }
         return LlmEvent.Finished(

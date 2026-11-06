@@ -51,11 +51,16 @@ class OpenAiCompatibleClient(
         } catch (e: CancellationException) {
             throw e
         } catch (e: LlmHttpException) {
-            val message = if (request.provider.kind.isOpenCode && e.code == 403) {
-                "OpenCode 返回 403：免费档模型只允许在 OpenCode 客户端内使用；" +
-                    "请改用付费模型，或确认当前 Key 已开通对应的 Go 订阅。"
-            } else {
-                e.message ?: "请求失败"
+            val message = when {
+                request.provider.kind.isOpenCode && e.code == 403 ->
+                    "OpenCode 返回 403：免费档模型只允许在 OpenCode 客户端内使用；" +
+                        "请改用付费模型，或确认当前 Key 已开通对应的 Go 订阅。"
+
+                request.provider.kind.isOpenCode && e.code == 429 ->
+                    "OpenCode 上游过载或限流（429）：当前模型服务暂时繁忙。" +
+                        "请稍后重试，或切换到同 Provider 的其他模型。"
+
+                else -> e.message ?: "请求失败"
             }
             emit(LlmEvent.Failed(message, e.code, LlmErrors.isRetryableCode(e.code)))
             return@flow

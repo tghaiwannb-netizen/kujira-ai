@@ -69,6 +69,7 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import app.kujira.android.data.model.ContentBlock
+import app.kujira.android.domain.ContextUsage
 import app.kujira.android.data.model.Message
 import app.kujira.android.data.model.Role
 import app.kujira.android.ui.components.KujiraIconButton
@@ -129,6 +130,9 @@ fun ChatScreen(
     /** Set false in tests/screenshot harnesses to skip enter transitions. */
     animateEntrances: Boolean = true,
     awaitingToolCallId: String? = null,
+    contextUsage: ContextUsage = ContextUsage(),
+    compacting: Boolean = false,
+    contextSummary: String? = null,
     suggestions: List<ChatSuggestion> = defaultChatSuggestions,
     onSend: (String) -> Unit = {},
     onStop: () -> Unit = {},
@@ -143,11 +147,17 @@ fun ChatScreen(
     onDeleteMessage: ((Message) -> Unit)? = null,
     onRetryMessage: ((Message) -> Unit)? = null,
     onToolDecision: ((ContentBlock.ToolCall, Boolean) -> Unit)? = null,
+    onCompactContext: () -> Unit = {},
+    onClearContextSummary: () -> Unit = {},
 ) {
     var draft by rememberSaveable { mutableStateOf("") }
+    var contextSheetVisible by remember { mutableStateOf(false) }
     var autoFollow by remember { mutableStateOf(true) }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
+    // Tool-result turns are provider-history plumbing; their results are
+    // rendered inside the preceding assistant message's tool cards.
+    val visibleMessages = remember(messages) { messages.filterNot { it.role == Role.TOOL } }
 
     val isDragged by listState.interactionSource.collectIsDraggedAsState()
     val isAtBottom by remember {
@@ -170,7 +180,7 @@ fun ChatScreen(
         if (isDragged && !isAtBottom) autoFollow = false
     }
 
-    val lastMessagesCount = messages.size
+    val lastMessagesCount = visibleMessages.size
     LaunchedEffect(lastMessagesCount) {
         if (lastMessagesCount > 0 && autoFollow) {
             // messages.size is the index of the 1dp end spacer: aligning it to
@@ -178,7 +188,7 @@ fun ChatScreen(
             listState.animateScrollToItem(lastMessagesCount)
         }
     }
-    val streamingTick = messages.lastOrNull()?.let { message ->
+    val streamingTick = visibleMessages.lastOrNull()?.let { message ->
         message.blocks.sumOf { block ->
             when (block) {
                 is ContentBlock.Text -> block.text.length
@@ -230,6 +240,9 @@ fun ChatScreen(
                 pluginsLabel = pluginsLabel,
                 pluginsHealthy = pluginsHealthy,
                 onPluginsClick = onPluginsClick,
+                contextUsage = contextUsage,
+                compacting = compacting,
+                onContextClick = { contextSheetVisible = true },
             )
         },
     ) { innerPadding ->
@@ -238,7 +251,7 @@ fun ChatScreen(
                 .fillMaxSize()
                 .padding(innerPadding),
         ) {
-            if (messages.isEmpty()) {
+            if (visibleMessages.isEmpty()) {
                 ChatEmptyState(
                     suggestions = suggestions,
                     onSuggestionClick = { suggestion -> draft = suggestion.prompt },
@@ -256,10 +269,10 @@ fun ChatScreen(
                     verticalArrangement = Arrangement.spacedBy(20.dp),
                 ) {
                     itemsIndexed(
-                        items = messages,
+                        items = visibleMessages,
                         key = { _, message -> message.id },
                     ) { index, message ->
-                        val isLast = index == messages.lastIndex
+                        val isLast = index == visibleMessages.lastIndex
                         MessageItem(
                             message = message,
                             modifier = Modifier.animateItem(),
@@ -282,7 +295,7 @@ fun ChatScreen(
                 }
             }
 
-            if (messages.isNotEmpty()) {
+            if (visibleMessages.isNotEmpty()) {
                 AnimatedVisibility(
                     visible = !isAtBottom,
                     modifier = Modifier
@@ -297,7 +310,7 @@ fun ChatScreen(
                         onClick = {
                             autoFollow = true
                             scope.launch {
-                                listState.animateScrollToItem(messages.size)
+                                listState.animateScrollToItem(visibleMessages.size)
                             }
                         },
                         shape = CircleShape,
@@ -316,6 +329,23 @@ fun ChatScreen(
                 }
             }
         }
+    }
+
+    if (contextSheetVisible) {
+        ContextSheet(
+            usage = contextUsage,
+            messages = messages,
+            modelLabel = modelLabel,
+            summary = contextSummary,
+            compacting = compacting,
+            onDismiss = { contextSheetVisible = false },
+            onCompact = {
+                onCompactContext()
+            },
+            onClearSummary = {
+                onClearContextSummary()
+            },
+        )
     }
 }
 
