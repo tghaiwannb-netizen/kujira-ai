@@ -357,7 +357,22 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 if (!run.discard) {
                     // Persist up-front so the turn survives the app being killed
                     // and the conversation shows up in the drawer immediately.
-                    db.upsertConversation(titled.copy(updatedAt = System.currentTimeMillis()))
+                    // Start from the stored row: pin/rename may have changed since
+                    // the UI state was captured, and the upsert replaces the row.
+                    val stored = db.getConversation(titled.id) ?: titled
+                    val saved = stored.copy(
+                        title = stored.title.ifBlank { titled.title },
+                        updatedAt = System.currentTimeMillis()
+                    )
+                    db.upsertConversation(saved)
+                    run.conversation = saved
+                    _state.update {
+                        if (it.activeConversation?.id == saved.id) {
+                            it.copy(activeConversation = saved)
+                        } else {
+                            it
+                        }
+                    }
                     if (existingUserMessage == null) db.insertMessage(userMessage)
                 }
 
@@ -817,11 +832,13 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private suspend fun finishCompleted(run: Run, event: ChatEvent.Completed) {
         if (run.discard) return
         val conversation = run.conversation
+        // Conversation gone (e.g. "clear all data"): do not resurrect it.
+        val stored = db.getConversation(conversation.id) ?: return
         // The user turn was persisted when the run started; the engine returns
         // the assistant/tool turns it produced.
         event.messages.forEach { message -> db.insertMessage(message) }
 
-        val updated = conversation.copy(updatedAt = System.currentTimeMillis())
+        val updated = stored.copy(updatedAt = System.currentTimeMillis())
         db.upsertConversation(updated)
         run.conversation = updated
 
@@ -851,9 +868,10 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             status = MessageStatus.ERROR,
             error = event.message
         )
+        val stored = db.getConversation(conversationId) ?: return
         event.partialMessages.forEach { db.insertMessage(it) }
         db.insertMessage(failed)
-        db.upsertConversation(run.conversation.copy(updatedAt = System.currentTimeMillis()))
+        db.upsertConversation(stored.copy(updatedAt = System.currentTimeMillis()))
 
         updateTranscript(conversationId) { list ->
             mergeToolResults(list.filterNot { it.id == run.streamingId } + event.partialMessages + failed)
@@ -884,8 +902,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         val stopped = closeOpenToolCalls(current).copy(status = MessageStatus.STOPPED)
         val keep = stopped.blocks.isNotEmpty()
 
+        val stored = db.getConversation(conversationId) ?: return
         if (keep) db.insertMessage(stopped)
-        db.upsertConversation(run.conversation.copy(updatedAt = System.currentTimeMillis()))
+        db.upsertConversation(stored.copy(updatedAt = System.currentTimeMillis()))
 
         updateTranscript(conversationId) { list ->
             list.filterNot { it.id == run.streamingId } + (if (keep) listOf(stopped) else emptyList())

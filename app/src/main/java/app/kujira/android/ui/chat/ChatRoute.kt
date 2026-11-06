@@ -75,7 +75,9 @@ fun ChatRoute(
                 Toast.makeText(context, "已删除对话", Toast.LENGTH_SHORT).show()
             },
             onTogglePin = { conversation -> viewModel.togglePin(conversation.id) },
-            onOpenSettings = onOpenSettings
+            onOpenSettings = onOpenSettings,
+            generatingIds = state.generatingIds,
+            onStopConversation = { conversation -> viewModel.stopConversation(conversation.id) }
         ) {
             ChatScreen(
                 messages = state.messages,

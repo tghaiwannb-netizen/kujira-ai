@@ -1,5 +1,10 @@
 package app.kujira.android.ui.sessions
 
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -17,6 +22,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
@@ -29,6 +35,7 @@ import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material3.DrawerState
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -145,6 +152,10 @@ fun formatSessionTimestamp(
  * Renaming is handled in-drawer via a dialog; deletion is swipe-to-delete or
  * the row overflow menu. Delete is a plain callback — the Lead should remove
  * the row from state and show the undo snackbar.
+ *
+ * Several conversations can generate at once: rows whose id is in
+ * [generatingIds] show a live "生成中…" marker instead of their timestamp, and
+ * their overflow menu offers "停止生成" when [onStopConversation] is provided.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -159,6 +170,8 @@ fun SessionDrawerHost(
     onTogglePin: (Conversation) -> Unit,
     modifier: Modifier = Modifier,
     onOpenSettings: (() -> Unit)? = null,
+    generatingIds: Set<String> = emptySet(),
+    onStopConversation: ((Conversation) -> Unit)? = null,
     content: @Composable () -> Unit,
 ) {
     ModalNavigationDrawer(
@@ -182,6 +195,8 @@ fun SessionDrawerHost(
                     onDeleteConversation = onDeleteConversation,
                     onTogglePin = onTogglePin,
                     onOpenSettings = onOpenSettings,
+                    generatingIds = generatingIds,
+                    onStopConversation = onStopConversation,
                 )
             }
         },
@@ -199,6 +214,8 @@ internal fun SessionDrawerContent(
     onDeleteConversation: (Conversation) -> Unit,
     onTogglePin: (Conversation) -> Unit,
     onOpenSettings: (() -> Unit)?,
+    generatingIds: Set<String> = emptySet(),
+    onStopConversation: ((Conversation) -> Unit)? = null,
 ) {
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var renameTarget by remember { mutableStateOf<Conversation?>(null) }
@@ -285,6 +302,7 @@ internal fun SessionDrawerContent(
                         SwipeToDeleteSessionItem(
                             conversation = conversation,
                             selected = conversation.id == currentConversationId,
+                            generating = conversation.id in generatingIds,
                             now = now,
                             onSelect = { onSelectConversation(conversation) },
                             onRename = {
@@ -293,6 +311,7 @@ internal fun SessionDrawerContent(
                             },
                             onDelete = { onDeleteConversation(conversation) },
                             onTogglePin = { onTogglePin(conversation) },
+                            onStop = onStopConversation?.let { stop -> { stop(conversation) } },
                         )
                     }
                     item(key = "spacer-${group.title}") {
@@ -436,11 +455,13 @@ private fun SessionGroupHeader(title: String, count: Int) {
 private fun SwipeToDeleteSessionItem(
     conversation: Conversation,
     selected: Boolean,
+    generating: Boolean,
     now: Long,
     onSelect: () -> Unit,
     onRename: () -> Unit,
     onDelete: () -> Unit,
     onTogglePin: () -> Unit,
+    onStop: (() -> Unit)?,
 ) {
     val dismissState = rememberSwipeToDismissBoxState(
         confirmValueChange = { value ->
@@ -479,24 +500,49 @@ private fun SwipeToDeleteSessionItem(
         SessionRow(
             conversation = conversation,
             selected = selected,
+            generating = generating,
             now = now,
             onSelect = onSelect,
             onRename = onRename,
             onDelete = onDelete,
             onTogglePin = onTogglePin,
+            onStop = onStop,
         )
     }
+}
+
+/** A small dot that breathes; marks a conversation that is generating right now. */
+@Composable
+private fun GeneratingDot() {
+    val transition = rememberInfiniteTransition(label = "session-generating")
+    val alpha by transition.animateFloat(
+        initialValue = 0.35f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 700),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "session-generating-alpha",
+    )
+    Box(
+        Modifier
+            .size(6.dp)
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.primary.copy(alpha = alpha))
+    )
 }
 
 @Composable
 private fun SessionRow(
     conversation: Conversation,
     selected: Boolean,
+    generating: Boolean,
     now: Long,
     onSelect: () -> Unit,
     onRename: () -> Unit,
     onDelete: () -> Unit,
     onTogglePin: () -> Unit,
+    onStop: (() -> Unit)?,
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
     Box {
@@ -541,11 +587,23 @@ private fun SessionRow(
                     )
                 }
                 Spacer(Modifier.height(2.dp))
-                Text(
-                    text = formatSessionTimestamp(updatedAt = conversation.updatedAt, now = now),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
-                )
+                if (generating) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        GeneratingDot()
+                        Spacer(Modifier.size(5.dp))
+                        Text(
+                            text = "生成中…",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                } else {
+                    Text(
+                        text = formatSessionTimestamp(updatedAt = conversation.updatedAt, now = now),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                    )
+                }
             }
             Box {
                 KujiraIconButton(
@@ -561,6 +619,22 @@ private fun SessionRow(
                     shape = RoundedCornerShape(14.dp),
                     containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                 ) {
+                    if (generating && onStop != null) {
+                        DropdownMenuItem(
+                            text = { Text("停止生成") },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Rounded.Stop,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(17.dp),
+                                )
+                            },
+                            onClick = {
+                                menuExpanded = false
+                                onStop()
+                            },
+                        )
+                    }
                     DropdownMenuItem(
                         text = { Text(if (conversation.pinned) "取消置顶" else "置顶") },
                         leadingIcon = {
@@ -658,6 +732,8 @@ private fun SessionDrawerDarkPreview() {
                 onDeleteConversation = {},
                 onTogglePin = {},
                 onOpenSettings = {},
+                generatingIds = setOf("c2", "c4"),
+                onStopConversation = {},
             )
         }
     }
