@@ -32,6 +32,20 @@ val LlmJson: Json = Json {
 internal val JsonMediaType: MediaType = "application/json; charset=utf-8".toMediaType()
 internal val EventStreamMediaType: MediaType = "text/event-stream".toMediaType()
 
+/**
+ * OpenCode Zen / Go use a stable per-conversation id for sticky routing and
+ * prompt-cache reuse. Go requires it. Keep the value to the character set the
+ * gateway accepts and cap it at its documented 128-character limit.
+ */
+internal fun openCodeSessionId(sessionId: String?): String {
+    val sanitized = sessionId
+        ?.trim()
+        ?.replace(Regex("[^\\w.:-]"), "-")
+        ?.take(128)
+        .orEmpty()
+    return sanitized.ifBlank { "kujira" }
+}
+
 /** Non-2xx HTTP response. [message] is already a human-readable Chinese explanation. */
 internal class LlmHttpException(
     val code: Int,

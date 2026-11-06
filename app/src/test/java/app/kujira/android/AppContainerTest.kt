@@ -46,6 +46,8 @@ class AppContainerTest {
         assertTrue(providers.isNotEmpty())
         assertNotNull(container.providerRepository.activeProvider())
         assertNotNull(settings.activeModelId)
+        assertTrue(providers.any { it.id == "opencode-zen" })
+        assertTrue(providers.any { it.id == "opencode-go" })
         // SentinelX preset must always be present and enabled by default.
         val sentinel = container.settingsStore.plugins.value.firstOrNull { it.preset == "sentinelx" }
         assertNotNull(sentinel)

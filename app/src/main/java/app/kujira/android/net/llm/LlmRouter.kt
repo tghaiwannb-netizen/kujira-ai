@@ -20,9 +20,12 @@ fun interface LlmStreamer {
  * Picks the right [LlmClient] for a provider kind.
  *
  * Anthropic gets its native `/v1/messages` client; everything else
- * (OpenAI, DeepSeek, OpenRouter, custom) speaks the OpenAI-compatible
- * `/chat/completions` protocol. The shared [OkHttpClient] is injected so the
- * app can reuse one connection pool and configure timeouts centrally.
+ * (OpenAI, DeepSeek, OpenRouter, OpenCode Zen/Go, custom) speaks the
+ * OpenAI-compatible `/chat/completions` protocol. OpenCode's gateway
+ * translates OpenAI Chat Completions requests to each model's native surface,
+ * so one client covers its whole catalogue. The shared [OkHttpClient] is
+ * injected so the app can reuse one connection pool and configure timeouts
+ * centrally.
  */
 class LlmRouter(
     private val httpClient: OkHttpClient = defaultHttpClient(),

@@ -14,9 +14,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.kujira.android.BuildConfig
 import app.kujira.android.data.model.AppSettings
+import app.kujira.android.data.model.ModelInfo
 import app.kujira.android.data.model.ProviderConfig
 import app.kujira.android.data.model.ProviderKind
 import app.kujira.android.di.AppContainer
+import app.kujira.android.domain.ModelSyncResult
 import kotlinx.coroutines.launch
 
 /*
@@ -108,6 +110,7 @@ fun ProviderRoute(
 ) {
     val repo = container.providerRepository
     val providers by repo.providers.collectAsStateWithLifecycle()
+    val keyRevision by repo.keyRevision.collectAsStateWithLifecycle()
     val existing = remember(providerId, providers) {
         providerId?.let { id -> providers.firstOrNull { it.id == id } }
     }
@@ -120,19 +123,41 @@ fun ProviderRoute(
         )
     }
     val isNew = existing == null
+    val keyConfigured = remember(provider.id, keyRevision) { repo.hasApiKey(provider.id) }
 
     var name by remember(provider.id) { mutableStateOf(provider.name) }
     var baseUrl by remember(provider.id) { mutableStateOf(provider.baseUrl) }
+    var modelsUrl by remember(provider.id) { mutableStateOf(provider.modelsUrl.orEmpty()) }
+    var enabled by remember(provider.id) { mutableStateOf(provider.enabled) }
     var apiKey by remember(provider.id) { mutableStateOf("") }
     var modelsText by remember(provider.id) {
         mutableStateOf(provider.models.joinToString("\n") {
             if (it.displayName == it.id) it.id else "${it.id}|${it.displayName}"
         })
     }
+    var knownModels by remember(provider.id) { mutableStateOf(provider.models) }
     var defaultModelId by remember(provider.id) { mutableStateOf(provider.defaultModelId.orEmpty()) }
     var testing by remember(provider.id) { mutableStateOf(false) }
     var testResult by remember(provider.id) { mutableStateOf<TestConnectionResult?>(null) }
+    var syncingModels by remember(provider.id) { mutableStateOf(false) }
+    var syncResult by remember(provider.id) { mutableStateOf<TestConnectionResult?>(null) }
     val scope = rememberCoroutineScope()
+
+    fun modelsFromEditor(): List<ModelInfo> =
+        repo.parseModelsWithMetadata(modelsText, (knownModels + provider.models).distinctBy { it.id })
+
+    fun candidateProvider(): ProviderConfig {
+        val models = modelsFromEditor()
+        return provider.copy(
+            name = name.ifBlank { provider.name },
+            baseUrl = baseUrl.ifBlank { provider.baseUrl },
+            models = models,
+            modelsUrl = modelsUrl.trim().takeIf { it.isNotEmpty() },
+            enabled = enabled,
+            defaultModelId = defaultModelId.trim().takeIf { id -> models.any { it.id == id } }
+                ?: models.firstOrNull()?.id
+        )
+    }
 
     ProviderSettingsScreen(
         provider = provider,
@@ -141,45 +166,77 @@ fun ProviderRoute(
         name = name,
         baseUrl = baseUrl,
         apiKey = apiKey,
+        apiKeyConfigured = keyConfigured,
         modelsText = modelsText,
+        knownModels = knownModels,
+        modelsUrl = modelsUrl,
         defaultModelId = defaultModelId,
         onNameChange = { name = it },
         onBaseUrlChange = { baseUrl = it },
         onApiKeyChange = { apiKey = it },
         onModelsChange = { modelsText = it },
+        onModelsUrlChange = { modelsUrl = it },
         onDefaultModelChange = { defaultModelId = it },
+        onEnabledChange = { value ->
+            enabled = value
+            if (!isNew) repo.setEnabled(provider.id, value)
+        },
+        onFetchModels = {
+            scope.launch {
+                syncingModels = true
+                syncResult = null
+                val candidate = candidateProvider()
+                val key = apiKey.ifBlank { repo.apiKey(provider.id) }
+                val outcome = if (candidate.builtin && key.isNullOrBlank()) {
+                    ModelSyncResult(false, "请先填写 API Key，再从服务端同步模型。")
+                } else {
+                    repo.fetchModels(candidate, key)
+                }
+                if (outcome.ok) {
+                    knownModels = outcome.models
+                    modelsText = outcome.models.joinToString("\n") {
+                        if (it.displayName == it.id) it.id else "${it.id}|${it.displayName}"
+                    }
+                    if (defaultModelId.isBlank() || outcome.models.none { it.id == defaultModelId }) {
+                        defaultModelId = outcome.models.firstOrNull()?.id.orEmpty()
+                    }
+                }
+                syncResult = TestConnectionResult(outcome.ok, outcome.message)
+                syncingModels = false
+            }
+        },
+        fetchingModels = syncingModels,
+        modelSyncResult = syncResult,
         testing = testing,
         testResult = testResult,
         onTestConnection = {
             scope.launch {
                 testing = true
                 testResult = null
-                val candidate = provider.copy(
-                    name = name.ifBlank { provider.name },
-                    baseUrl = baseUrl.ifBlank { provider.baseUrl },
-                    models = repo.parseModels(modelsText).ifEmpty { provider.models },
-                    defaultModelId = defaultModelId.ifBlank {
-                        repo.parseModels(modelsText).firstOrNull()?.id
-                    }
-                )
+                val candidate = candidateProvider()
                 val key = apiKey.ifBlank { repo.apiKey(provider.id) }
-                val result = if (key.isNullOrBlank()) {
-                    TestConnectionResult(success = false, message = "请先填写 API Key")
+                val result = if (candidate.builtin && key.isNullOrBlank()) {
+                    TestConnectionResult(false, "请先填写 API Key")
                 } else {
                     val outcome = repo.testConnection(candidate, candidate.defaultModelId)
-                    TestConnectionResult(success = outcome.ok, message = outcome.message)
+                    TestConnectionResult(outcome.ok, outcome.message)
                 }
                 testResult = result
                 testing = false
             }
         },
+        onDelete = if (isNew) null else {
+            {
+                repo.delete(provider.id)
+                onBack()
+            }
+        },
         onSave = {
-            val models = repo.parseModels(modelsText)
-            val updated = provider.copy(
-                name = name.ifBlank { provider.name },
-                baseUrl = baseUrl.ifBlank { provider.baseUrl },
+            val models = modelsFromEditor()
+            val updated = candidateProvider().copy(
                 models = models,
-                defaultModelId = defaultModelId.ifBlank { models.firstOrNull()?.id }
+                defaultModelId = defaultModelId.trim().takeIf { id -> models.any { it.id == id } }
+                    ?: models.firstOrNull()?.id
             )
             repo.save(updated)
             if (apiKey.isNotBlank()) repo.saveApiKey(updated.id, apiKey)
@@ -187,6 +244,50 @@ fun ProviderRoute(
             onBack()
         }
     )
+}
+
+@Composable
+fun ProviderListRoute(
+    container: AppContainer,
+    onBack: () -> Unit,
+    onOpenProvider: (String) -> Unit,
+    onAddCustomProvider: () -> Unit,
+) {
+    val repo = container.providerRepository
+    val providers by repo.providers.collectAsStateWithLifecycle()
+    val settings by repo.settings.collectAsStateWithLifecycle()
+    val keyRevision by repo.keyRevision.collectAsStateWithLifecycle()
+    var showPresetSheet by remember { mutableStateOf(false) }
+    val configuredKeys = remember(providers, keyRevision) {
+        providers.filter { repo.hasApiKey(it.id) }.mapTo(HashSet()) { it.id }
+    }
+
+    ProviderListScreen(
+        providers = providers,
+        activeProviderId = settings.activeProviderId,
+        activeModelId = settings.activeModelId,
+        configuredKeys = configuredKeys,
+        onBack = onBack,
+        onAddProvider = { showPresetSheet = true },
+        onOpenProvider = onOpenProvider,
+        onToggleEnabled = { id, enabled -> repo.setEnabled(id, enabled) },
+    )
+
+    if (showPresetSheet) {
+        ProviderPresetSheet(
+            existingIds = providers.mapTo(HashSet()) { it.id },
+            onDismiss = { showPresetSheet = false },
+            onSelect = { preset ->
+                showPresetSheet = false
+                val provider = repo.addPreset(preset)
+                onOpenProvider(provider.id)
+            },
+            onCustom = {
+                showPresetSheet = false
+                onAddCustomProvider()
+            },
+        )
+    }
 }
 
 @Composable

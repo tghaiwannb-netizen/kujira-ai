@@ -143,6 +143,7 @@ class ChatEngineTest {
         assertEquals(0.5, firstRequest.temperature, 0.0001)
         assertEquals(0.8, firstRequest.topP, 0.0001)
         assertEquals(256, firstRequest.maxTokens)
+        assertEquals("c1", firstRequest.sessionId)
     }
 
     @Test

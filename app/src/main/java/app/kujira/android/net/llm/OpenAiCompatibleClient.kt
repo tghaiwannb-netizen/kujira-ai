@@ -1,5 +1,6 @@
 package app.kujira.android.net.llm
 
+import app.kujira.android.data.model.isOpenCode
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -50,7 +51,13 @@ class OpenAiCompatibleClient(
         } catch (e: CancellationException) {
             throw e
         } catch (e: LlmHttpException) {
-            emit(LlmEvent.Failed(e.message ?: "请求失败", e.code, LlmErrors.isRetryableCode(e.code)))
+            val message = if (request.provider.kind.isOpenCode && e.code == 403) {
+                "OpenCode 返回 403：免费档模型只允许在 OpenCode 客户端内使用；" +
+                    "请改用付费模型，或确认当前 Key 已开通对应的 Go 订阅。"
+            } else {
+                e.message ?: "请求失败"
+            }
+            emit(LlmEvent.Failed(message, e.code, LlmErrors.isRetryableCode(e.code)))
             return@flow
         } catch (e: LlmStreamException) {
             emit(LlmEvent.Failed(e.message ?: "流式响应异常", e.code, e.retryable))

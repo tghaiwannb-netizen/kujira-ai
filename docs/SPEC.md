@@ -38,9 +38,18 @@
 - 持久化到本地 SQLite，冷启动恢复上次会话。
 
 ### 3. 模型与 Provider（P0）
-- 内置 provider：DeepSeek、OpenAI、Anthropic、OpenRouter、自定义（OpenAI 兼容）。
-- 每个 provider 可配置：API Key（加密存储）、Base URL、模型列表（多行文本，`id|显示名` 格式）。
-- 会话级模型绑定：切换模型后新消息用新模型。
+- 内置 provider：DeepSeek、OpenAI、Anthropic、OpenRouter、**OpenCode Zen**、
+  **OpenCode Go**、自定义（OpenAI 兼容）。
+- Provider 预设目录另外提供 Gemini、xAI、Groq、Mistral、Moonshot / Kimi、智谱 GLM；
+  添加时预填 Base URL、文档、取 Key 地址和精选模型。
+- 每个 provider 可配置：API Key（加密存储）、Base URL、模型列表（多行文本，
+  `id|显示名` 格式）、可选模型目录 URL、启用开关。
+- **模型同步**：从服务端 `GET /models` 拉取 ID、显示名、上下文 / 输出上限、
+  工具 / 视觉 / 思考 / temperature 能力；合并时保留用户改过的显示名和手动模型。
+- Provider 管理页：列表、Key 状态、模型数、启用开关、添加预设、删除与连接测试。
+- OpenCode 两个网关按官方文档发送稳定的 `x-opencode-session`（会话 ID），
+  Go 的路由与 prompt cache 依赖该头。
+- 会话级模型绑定：切换模型后新消息用新模型；模型多时用可搜索的 Bottom Sheet 选择。
 - 全局生成参数：temperature、max_output_tokens、top_p、系统提示词。
 - API Key 用 Android Keystore（AES-GCM）加密后存 SharedPreferences，不落盘明文。
 

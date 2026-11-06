@@ -1,8 +1,10 @@
 package app.kujira.android.net.llm
 
+import app.kujira.android.data.model.ModelInfo
 import app.kujira.android.data.model.ProviderConfig
 import app.kujira.android.data.model.ProviderKind
 import app.kujira.android.data.model.Role
+import app.kujira.android.data.model.isOpenCode
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -44,6 +46,9 @@ internal object OpenAiWire {
             builder.add("HTTP-Referer", "https://kujira.app")
             builder.add("X-Title", "Kujira")
         }
+        if (request.provider.kind.isOpenCode) {
+            builder.add("x-opencode-session", openCodeSessionId(request.sessionId))
+        }
         return builder.build()
     }
 
@@ -79,7 +84,7 @@ internal object OpenAiWire {
             put("tool_choice", "auto")
         }
 
-        if (!isReasoningOnlyModel(request.provider, request.model)) {
+        if (supportsSampling(request.provider, request.model)) {
             put("temperature", request.temperature)
             put("top_p", request.topP)
         }
@@ -153,6 +158,19 @@ internal object OpenAiWire {
 
     internal fun usesMaxCompletionTokens(provider: ProviderConfig, model: String): Boolean =
         isReasoningOnlyModel(provider, model)
+
+    /**
+     * Some reasoning models exposed by OpenCode / OpenRouter report
+     * `temperature: false`. Respect that instead of sending a parameter the
+     * gateway will reject.
+     */
+    internal fun supportsSampling(provider: ProviderConfig, model: String): Boolean {
+        if (isReasoningOnlyModel(provider, model)) return false
+        return modelInfo(provider, model)?.supportsTemperature != false
+    }
+
+    internal fun modelInfo(provider: ProviderConfig, model: String): ModelInfo? =
+        provider.models.firstOrNull { it.id == model }
 
     /**
      * All system content is merged into a single leading system message:

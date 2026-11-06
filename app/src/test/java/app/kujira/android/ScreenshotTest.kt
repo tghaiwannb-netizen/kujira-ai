@@ -13,9 +13,13 @@ import androidx.compose.ui.graphics.asAndroidBitmap
 import app.kujira.android.data.model.Conversation
 import app.kujira.android.data.model.PluginConfig
 import app.kujira.android.data.model.ThemeMode
+import app.kujira.android.core.ProviderPresets
 import app.kujira.android.ui.chat.ChatScreen
 import app.kujira.android.ui.chat.previewMessages
+import app.kujira.android.ui.settings.ProviderListScreen
+import app.kujira.android.ui.settings.ProviderSettingsScreen
 import app.kujira.android.ui.settings.SettingsScreen
+import app.kujira.android.ui.settings.TestConnectionResult
 import app.kujira.android.ui.settings.previewProviders
 import app.kujira.android.ui.theme.KujiraTheme
 import org.junit.Test
@@ -93,7 +97,7 @@ class ScreenshotTest {
                     preset = "sentinelx"
                 )
             ),
-            appVersion = "1.0.0",
+            appVersion = "1.1.0",
             onBack = null
         )
     }
@@ -104,8 +108,48 @@ class ScreenshotTest {
             settings = app.kujira.android.data.model.AppSettings(themeMode = ThemeMode.LIGHT),
             providers = previewProviders,
             plugins = emptyList(),
-            appVersion = "1.0.0",
+            appVersion = "1.1.0",
             onBack = null
+        )
+    }
+
+    @Test
+    fun providersDark() = render("providers-dark", dark = true, sizeDp = 891) {
+        ProviderListScreen(
+            providers = previewProviders + listOf(
+                ProviderPresets.openCodeZen.toProvider().copy(enabled = true),
+                ProviderPresets.openCodeGo.toProvider().copy(enabled = false)
+            ),
+            activeProviderId = "provider-deepseek",
+            activeModelId = "deepseek-chat",
+            configuredKeys = setOf("provider-deepseek", "opencode-zen"),
+            onBack = {},
+            onAddProvider = {},
+            onOpenProvider = {},
+            onToggleEnabled = { _, _ -> },
+        )
+    }
+
+    @Test
+    fun providerEditorDark() = render("provider-editor-dark", dark = true, sizeDp = 891) {
+        val provider = ProviderPresets.openCodeZen.toProvider().copy(enabled = true)
+        ProviderSettingsScreen(
+            provider = provider,
+            onBack = {},
+            apiKeyConfigured = true,
+            modelsText = provider.models.joinToString("\n") {
+                if (it.displayName == it.id) it.id else "${it.id}|${it.displayName}"
+            },
+            knownModels = provider.models,
+            modelsUrl = provider.modelsUrl.orEmpty(),
+            defaultModelId = provider.defaultModelId.orEmpty(),
+            onEnabledChange = {},
+            onFetchModels = {},
+            onTestConnection = {},
+            testResult = TestConnectionResult(true, "连接成功，模型响应正常（842ms）。"),
+            modelSyncResult = TestConnectionResult(true, "已从服务端同步 14 个模型（623ms）。"),
+            onDelete = {},
+            onSave = {},
         )
     }
 
