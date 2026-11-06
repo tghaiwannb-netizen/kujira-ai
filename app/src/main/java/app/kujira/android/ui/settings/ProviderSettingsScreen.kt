@@ -73,6 +73,7 @@ fun ProviderSettingsScreen(
     baseUrl: String = provider.baseUrl,
     apiKey: String = "",
     apiKeyConfigured: Boolean = false,
+    enabled: Boolean = provider.enabled,
     modelsText: String = provider.models.joinToString("\n") {
         if (it.displayName == it.id) it.id else "${it.id}|${it.displayName}"
     },
@@ -221,7 +222,7 @@ fun ProviderSettingsScreen(
                 SettingsSwitchRow(
                     title = "启用此 Provider",
                     subtitle = "禁用后不会出现在模型选择器里",
-                    checked = provider.enabled,
+                    checked = enabled,
                     onCheckedChange = onEnabledChange,
                 )
             }

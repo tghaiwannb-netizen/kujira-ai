@@ -124,7 +124,7 @@ class ScreenshotTest {
                     preset = "sentinelx"
                 )
             ),
-            appVersion = "1.2.0",
+            appVersion = "1.2.1",
             onBack = null
         )
     }
@@ -135,7 +135,7 @@ class ScreenshotTest {
             settings = app.kujira.android.data.model.AppSettings(themeMode = ThemeMode.LIGHT),
             providers = previewProviders,
             plugins = emptyList(),
-            appVersion = "1.2.0",
+            appVersion = "1.2.1",
             onBack = null
         )
     }

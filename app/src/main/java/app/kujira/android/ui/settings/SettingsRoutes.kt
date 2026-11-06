@@ -175,6 +175,7 @@ fun ProviderRoute(
         baseUrl = baseUrl,
         apiKey = apiKey,
         apiKeyConfigured = keyConfigured,
+        enabled = enabled,
         modelsText = modelsText,
         knownModels = knownModels,
         modelsUrl = modelsUrl,

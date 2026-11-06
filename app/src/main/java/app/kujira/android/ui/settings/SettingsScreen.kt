@@ -46,7 +46,7 @@ fun SettingsScreen(
     modifier: Modifier = Modifier,
     providers: List<ProviderConfig> = emptyList(),
     plugins: List<PluginConfig> = emptyList(),
-    appVersion: String = "1.2.0",
+    appVersion: String = "1.2.1",
     onBack: (() -> Unit)? = null,
     onShowReasoningChange: (Boolean) -> Unit = {},
     onNavigateAppearance: () -> Unit = {},
