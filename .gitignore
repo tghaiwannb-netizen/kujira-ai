@@ -1,6 +1,7 @@
 .gradle/
 build/
 .kotlin/
+local.properties
 .idea/
 *.iml
 captures/
