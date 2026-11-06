@@ -1,6 +1,7 @@
 package app.kujira.android.net.llm
 
 import app.kujira.android.data.model.Role
+import app.kujira.android.data.model.isOpenCode
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
@@ -41,7 +42,12 @@ internal object AnthropicWire {
         .add("Accept", "text/event-stream")
         .add("User-Agent", USER_AGENT)
         .add("anthropic-version", API_VERSION)
-        .apply { request.apiKey.trim().takeIf { it.isNotEmpty() }?.let { add("x-api-key", it) } }
+        .apply {
+            request.apiKey.trim().takeIf { it.isNotEmpty() }?.let { add("x-api-key", it) }
+            if (request.provider.kind.isOpenCode) {
+                add("x-opencode-session", openCodeSessionId(request.sessionId))
+            }
+        }
         .build()
 
     fun httpRequest(request: LlmRequest, json: Json = LlmJson): Request =

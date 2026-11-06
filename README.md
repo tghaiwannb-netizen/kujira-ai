@@ -15,10 +15,17 @@
   <img src="docs/screenshots/settings-dark.png" width="260" alt="设置" />
   <img src="docs/screenshots/plugins-dark.png" width="260" alt="插件" />
 </p>
+<p align="center">
+  <img src="docs/screenshots/providers-dark.png" width="260" alt="模型供应商" />
+  <img src="docs/screenshots/provider-editor-dark.png" width="260" alt="OpenCode Zen" />
+</p>
 
 ## 功能
 
-- **多模型对话**：DeepSeek / OpenAI / Anthropic / OpenRouter / 任意 OpenAI 兼容端点
+- **多模型对话**：DeepSeek / OpenAI / Anthropic / OpenRouter / **OpenCode Zen** /
+  **OpenCode Go** / 任意 OpenAI 兼容端点
+- **模型供应商管理**：内置 12 个 provider 预设、启用开关、Key 状态、官方文档与取 Key 入口；
+  **从服务端 `/models` 一键同步模型**，自动补全上下文窗口、工具 / 视觉 / 思考能力
 - **流式回复**：SSE 增量渲染、随时停止、Markdown（标题/列表/表格/代码块高亮/复制）
 - **会话管理**：本地 SQLite、分组历史、置顶、重命名、搜索、**JSON 导出/导入备份**
 - **消息操作**：复制、编辑并重发、重新生成、删除、失败重试
@@ -59,9 +66,29 @@
 
 ## 配置
 
-### 1. 加 API Key
+### 1. 加 API Key 与模型
 
-设置 → 模型 → 选 provider → 填 API Key。Key 存 Keystore 加密的 SharedPreferences。
+设置 → 模型 → Provider 与 API Key：
+
+1. 右上角 `+` 选择预设（OpenCode Zen / OpenCode Go / DeepSeek / OpenAI / Anthropic /
+   OpenRouter，以及 Gemini、xAI、Groq、Mistral、Kimi、GLM 等）；
+2. 填 API Key，点「获取 API Key」可直接打开官方控制台；
+3. 点「从服务端同步模型」拉取 `/models`，自动补全上下文与能力；
+4. 打开「启用此 Provider」，保存后回到模型页选中它。
+
+Key 存在 Keystore 加密的 SharedPreferences 里。
+
+**OpenCode** 两个网关都使用 OpenAI Chat Completions 兼容地址：
+
+| Provider | Base URL | 说明 |
+| --- | --- | --- |
+| OpenCode Zen | `https://opencode.ai/inference/openai/v1` | 按量付费，GPT / Claude / Gemini / 开源模型 |
+| OpenCode Go | `https://opencode.ai/inference/go/openai/v1` | $10/月订阅，开源编码模型 |
+
+两个网关共用 `https://opencode.ai/inference/v1/models` 模型目录，密钥来自
+[OpenCode Console](https://opencode.ai/console)。Kujira 会按文档发送稳定的
+`x-opencode-session`（每个会话一个），Go 的路由与 prompt cache 都依赖它。
+免费档聊天模型只允许在 OpenCode 内使用，第三方客户端会收到 403——请选付费模型或 Go。
 
 ### 2. 连 SentinelX
 
@@ -83,20 +110,35 @@
 ```
 data/model     领域模型（Conversation/Message/ContentBlock/PluginConfig/...）
 data/db        SQLite（conversations / messages / tool_audit）
-core           SecureStore（Keystore 加密）、SettingsStore（设置/Provider/插件持久化）
+core           SecureStore（Keystore 加密）、SettingsStore、ProviderPresets（Provider 预设目录）
 net/llm        LlmClient 接口 + OpenAI 兼容 / Anthropic SSE 客户端 + LlmRouter
+               + ModelCatalogClient（`/models` 拉取、能力解析与合并）
 domain         ChatEngine（工具调用循环）、ToolExecutor 接口、ProviderRepository
 net/mcp        JSON-RPC 2.0、Streamable HTTP 传输、McpClient、McpManager、OAuth PKCE
 net/sentinelx  SentinelX 预设/主机/工具分组/错误解释
 ui/chat        聊天界面、Markdown 渲染器、消息气泡、工具卡片
 ui/sessions    会话抽屉
 ui/plugins     插件管理与工具开关
-ui/settings    设置
+ui/settings    Provider 列表 / 预设选择 / 模型同步 / 设置
 ui/theme       配色与字体（墨黑 + 陶土橙 / 暖纸）
 di             AppContainer（手写 DI）
 ```
 
 ## 致谢 / 参考
+
+Provider 这一轮的设计大量参考了这些开源项目（只借鉴做法，没有拷贝它们的 UI 资产）：
+
+- [OpenCode](https://github.com/anomalyco/opencode) —— Zen / Go 网关地址、模型目录、
+  `x-opencode-session` 与各模型的原生 API surface，以官方 docs 源码为准；
+- [models.dev](https://github.com/sst/models.dev) —— 模型上下文、输出上限、工具 / 视觉 /
+  思考能力与 temperature 支持情况；
+- [RikkaHub](https://github.com/rikkahub/rikkahub) —— Provider 列表、预设推荐 Sheet、
+  模型列表同步与连接测试的交互；
+- [Chatbox](https://github.com/chatboxai/chatbox) —— OpenCode 会话头、模型元数据与
+  按模型能力发送请求参数的处理；
+- [Cherry Studio](https://github.com/CherryHQ/cherry-studio) —— Provider 预设与模型同步的产品结构。
+
+其他：
 
 - 桌面端 SentinelX MCP bridge：`~/Desktop/dsh-plugins/sentinelx-mcp/bridge.mjs` —— OAuth 流程与
   协议细节以它为准。

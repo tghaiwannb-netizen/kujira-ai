@@ -98,8 +98,17 @@ data class Conversation(
 
 @Serializable
 enum class ProviderKind {
-    OPENAI, ANTHROPIC, DEEPSEEK, OPENROUTER, CUSTOM
+    OPENAI, ANTHROPIC, DEEPSEEK, OPENROUTER,
+    /** OpenCode Zen — pay-as-you-go gateway at opencode.ai/inference. */
+    OPENCODE_ZEN,
+    /** OpenCode Go — subscription gateway at opencode.ai/inference/go. */
+    OPENCODE_GO,
+    CUSTOM
 }
+
+/** True for both OpenCode gateways, which share auth and session-header rules. */
+val ProviderKind.isOpenCode: Boolean
+    get() = this == ProviderKind.OPENCODE_ZEN || this == ProviderKind.OPENCODE_GO
 
 @Serializable
 data class ModelInfo(
@@ -107,7 +116,15 @@ data class ModelInfo(
     val displayName: String = id,
     val contextWindow: Int? = null,
     val supportsTools: Boolean = true,
-    val supportsVision: Boolean = false
+    val supportsVision: Boolean = false,
+    /** The model emits a reasoning/thinking stream. Used for UI badges. */
+    val supportsReasoning: Boolean = false,
+    /**
+     * Some reasoning models reject `temperature` / `top_p`. When false the
+     * OpenAI-compatible payload omits both instead of failing the request.
+     */
+    val supportsTemperature: Boolean = true,
+    val maxOutputTokens: Int? = null
 )
 
 @Serializable
@@ -121,7 +138,13 @@ data class ProviderConfig(
     val models: List<ModelInfo> = emptyList(),
     val defaultModelId: String? = null,
     val enabled: Boolean = true,
-    val builtin: Boolean = false
+    val builtin: Boolean = false,
+    /** Optional metadata used by the provider management UI. */
+    val description: String? = null,
+    val docsUrl: String? = null,
+    val apiKeyUrl: String? = null,
+    /** Where to GET the remote model catalogue. Falls back to `<baseUrl>/models`. */
+    val modelsUrl: String? = null
 ) {
     fun defaultModel(): ModelInfo? =
         models.firstOrNull { it.id == defaultModelId } ?: models.firstOrNull()

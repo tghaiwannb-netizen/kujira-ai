@@ -31,7 +31,12 @@ data class LlmRequest(
     val tools: List<LlmToolSpec> = emptyList(),
     val temperature: Double = 0.7,
     val topP: Double = 1.0,
-    val maxTokens: Int = 4096
+    val maxTokens: Int = 4096,
+    /**
+     * Stable conversation id. OpenCode Zen/Go forward it as
+     * `x-opencode-session`; other providers ignore it.
+     */
+    val sessionId: String? = null
 )
 
 /** One turn in provider-neutral form. */

@@ -99,6 +99,50 @@ class OpenAiWireTest {
     }
 
     @Test
+    fun `opencode forwards a stable session header`() {
+        val headers = OpenAiWire.headers(
+            request(provider(ProviderKind.OPENCODE_GO)).copy(sessionId = "conversation-42")
+        )
+        assertEquals("conversation-42", headers["x-opencode-session"])
+
+        val sanitized = OpenAiWire.headers(
+            request(provider(ProviderKind.OPENCODE_ZEN)).copy(sessionId = "a b/c")
+        )
+        assertEquals("a-b-c", sanitized["x-opencode-session"])
+
+        val fallback = OpenAiWire.headers(
+            request(provider(ProviderKind.OPENCODE_ZEN)).copy(sessionId = null)
+        )
+        assertEquals("kujira", fallback["x-opencode-session"])
+    }
+
+    @Test
+    fun `non-opencode providers do not get the session header`() {
+        val headers = OpenAiWire.headers(
+            request(provider(ProviderKind.DEEPSEEK)).copy(sessionId = "conversation-42")
+        )
+        assertNull(headers["x-opencode-session"])
+    }
+
+    @Test
+    fun `model metadata can disable sampling parameters`() {
+        val provider = provider(ProviderKind.OPENCODE_GO).copy(
+            models = listOf(
+                ModelInfo(
+                    id = "kimi-k3",
+                    supportsTemperature = false
+                )
+            )
+        )
+        val body = OpenAiWire.requestBody(
+            request(provider = provider, model = "kimi-k3", tools = emptyList())
+        )
+        assertFalse(body.containsKey("temperature"))
+        assertFalse(body.containsKey("top_p"))
+        assertEquals("512", body["max_tokens"]!!.jsonPrimitive.content)
+    }
+
+    @Test
     fun `body contains streaming options messages and tools`() {
         val body = OpenAiWire.requestBody(request())
 

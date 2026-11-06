@@ -32,6 +32,7 @@ import app.kujira.android.ui.plugins.SentinelXRoute
 import app.kujira.android.ui.settings.AppearanceRoute
 import app.kujira.android.ui.settings.DataRoute
 import app.kujira.android.ui.settings.ModelRoute
+import app.kujira.android.ui.settings.ProviderListRoute
 import app.kujira.android.ui.settings.ProviderRoute
 import app.kujira.android.ui.settings.RootSettingsRoute
 import app.kujira.android.ui.settings.AboutRoute
@@ -96,7 +97,15 @@ private fun KujiraNavHost(container: AppContainer, navController: NavHostControl
             ModelRoute(
                 container = container,
                 onBack = { navController.popBackStack() },
-                onManageProviders = { navController.navigate(Routes.PROVIDER_EDITOR) }
+                onManageProviders = { navController.navigate(Routes.PROVIDERS) }
+            )
+        }
+        composable(Routes.PROVIDERS) {
+            ProviderListRoute(
+                container = container,
+                onBack = { navController.popBackStack() },
+                onOpenProvider = { id -> navController.navigate(Routes.providerDetail(id)) },
+                onAddCustomProvider = { navController.navigate(Routes.PROVIDER_EDITOR) }
             )
         }
         composable(Routes.PROVIDER_EDITOR) {
@@ -171,6 +180,7 @@ object Routes {
     const val SETTINGS = "settings"
     const val APPEARANCE = "settings/appearance"
     const val MODELS = "settings/models"
+    const val PROVIDERS = "settings/providers"
     const val PROVIDER_EDITOR = "settings/provider/new"
     const val PROVIDER_DETAIL = "settings/provider/{providerId}"
     const val PLUGINS = "settings/plugins"

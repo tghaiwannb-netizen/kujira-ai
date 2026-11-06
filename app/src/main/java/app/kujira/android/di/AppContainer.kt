@@ -10,6 +10,7 @@ import app.kujira.android.domain.ConfirmingToolExecutor
 import app.kujira.android.domain.McpToolExecutor
 import app.kujira.android.domain.ProviderRepository
 import app.kujira.android.net.llm.LlmRouter
+import app.kujira.android.net.llm.ModelCatalogClient
 import app.kujira.android.net.mcp.McpManager
 import app.kujira.android.net.sentinelx.SentinelXService
 import okhttp3.OkHttpClient
@@ -48,10 +49,13 @@ class AppContainer(context: Context) {
 
     val llmRouter: LlmRouter = LlmRouter(httpClient)
 
+    val modelCatalogClient: ModelCatalogClient = ModelCatalogClient(controlClient)
+
     val providerRepository: ProviderRepository = ProviderRepository(
         settingsStore = settingsStore,
         secureStore = secureStore,
-        streamer = llmRouter
+        streamer = llmRouter,
+        modelCatalog = modelCatalogClient
     )
 
     // -- MCP plugins --------------------------------------------------------

@@ -221,7 +221,8 @@ class ChatEngine(
             tools = toolSpecs,
             temperature = request.settings.temperature,
             topP = request.settings.topP,
-            maxTokens = request.settings.maxTokens
+            maxTokens = request.settings.maxTokens,
+            sessionId = request.conversationId
         )
         val text = StringBuilder()
         val reasoning = StringBuilder()

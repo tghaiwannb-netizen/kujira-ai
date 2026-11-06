@@ -4,8 +4,6 @@ import android.content.Context
 import app.kujira.android.data.model.AppSettings
 import app.kujira.android.data.model.ProviderConfig
 import app.kujira.android.data.model.PluginConfig
-import app.kujira.android.data.model.ProviderKind
-import app.kujira.android.data.model.ModelInfo
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -48,8 +46,11 @@ class SettingsStore(context: Context) {
 
     fun saveProviders(list: List<ProviderConfig>) {
         _providers.value = list
+        val seeded = prefs.getStringSet(KEY_SEEDED_PROVIDERS, emptySet()).orEmpty().toMutableSet()
+        seeded += list.filter { it.builtin }.map { it.id }
         prefs.edit()
             .putString(KEY_PROVIDERS, json.encodeToString(kotlinx.serialization.builtins.ListSerializer(ProviderConfig.serializer()), list))
+            .putStringSet(KEY_SEEDED_PROVIDERS, seeded)
             .apply()
     }
 
@@ -63,10 +64,50 @@ class SettingsStore(context: Context) {
     fun deleteProvider(id: String) = saveProviders(_providers.value.filterNot { it.id == id })
 
     private fun loadProviders(): List<ProviderConfig> {
-        val raw = prefs.getString(KEY_PROVIDERS, null) ?: return defaultProviders()
-        return runCatching {
+        val raw = prefs.getString(KEY_PROVIDERS, null)
+        if (raw == null) {
+            val defaults = defaultProviders()
+            prefs.edit()
+                .putString(
+                    KEY_PROVIDERS,
+                    json.encodeToString(
+                        kotlinx.serialization.builtins.ListSerializer(ProviderConfig.serializer()),
+                        defaults
+                    )
+                )
+                .putStringSet(KEY_SEEDED_PROVIDERS, ProviderPresets.core.map { it.id }.toSet())
+                .apply()
+            return defaults
+        }
+
+        val stored = runCatching {
             json.decodeFromString(kotlinx.serialization.builtins.ListSerializer(ProviderConfig.serializer()), raw)
         }.getOrElse { defaultProviders() }
+
+        // Upgrade path: add newly introduced built-ins exactly once. Once a
+        // preset id is in the seeded set, deleting the provider stays deleted.
+        val seeded = prefs.getStringSet(KEY_SEEDED_PROVIDERS, null)?.toMutableSet()
+            ?: stored.filter { it.builtin }.map { it.id }.toMutableSet()
+        val existingIds = stored.map { it.id }.toSet()
+        val additions = ProviderPresets.core
+            .filter { it.id !in existingIds && it.id !in seeded }
+            .map { it.toProvider() }
+        val merged = stored + additions
+
+        val nextSeeded = seeded.apply { ProviderPresets.core.forEach { add(it.id) } }
+        if (additions.isNotEmpty() || prefs.getStringSet(KEY_SEEDED_PROVIDERS, null) == null) {
+            prefs.edit()
+                .putString(
+                    KEY_PROVIDERS,
+                    json.encodeToString(
+                        kotlinx.serialization.builtins.ListSerializer(ProviderConfig.serializer()),
+                        merged
+                    )
+                )
+                .putStringSet(KEY_SEEDED_PROVIDERS, nextSeeded)
+                .apply()
+        }
+        return merged
     }
 
     // -- plugins -------------------------------------------------------------
@@ -114,59 +155,7 @@ class SettingsStore(context: Context) {
         )
     }
 
-    fun defaultProviders(): List<ProviderConfig> = listOf(
-        ProviderConfig(
-            id = "deepseek",
-            kind = ProviderKind.DEEPSEEK,
-            name = "DeepSeek",
-            baseUrl = "https://api.deepseek.com/v1",
-            builtin = true,
-            models = listOf(
-                ModelInfo("deepseek-chat", "DeepSeek Chat"),
-                ModelInfo("deepseek-reasoner", "DeepSeek Reasoner")
-            ),
-            defaultModelId = "deepseek-chat"
-        ),
-        ProviderConfig(
-            id = "openai",
-            kind = ProviderKind.OPENAI,
-            name = "OpenAI",
-            baseUrl = "https://api.openai.com/v1",
-            builtin = true,
-            models = listOf(
-                ModelInfo("gpt-5.1", "GPT-5.1", supportsVision = true),
-                ModelInfo("gpt-5.1-mini", "GPT-5.1 mini", supportsVision = true),
-                ModelInfo("gpt-4.1", "GPT-4.1", supportsVision = true)
-            ),
-            defaultModelId = "gpt-5.1"
-        ),
-        ProviderConfig(
-            id = "anthropic",
-            kind = ProviderKind.ANTHROPIC,
-            name = "Anthropic",
-            baseUrl = "https://api.anthropic.com/v1",
-            builtin = true,
-            models = listOf(
-                ModelInfo("claude-sonnet-4-6", "Claude Sonnet 4.6", supportsVision = true),
-                ModelInfo("claude-opus-4-6", "Claude Opus 4.6", supportsVision = true),
-                ModelInfo("claude-haiku-4-5", "Claude Haiku 4.5", supportsVision = true)
-            ),
-            defaultModelId = "claude-sonnet-4-6"
-        ),
-        ProviderConfig(
-            id = "openrouter",
-            kind = ProviderKind.OPENROUTER,
-            name = "OpenRouter",
-            baseUrl = "https://openrouter.ai/api/v1",
-            builtin = true,
-            models = listOf(
-                ModelInfo("anthropic/claude-sonnet-4.6", "Claude Sonnet 4.6"),
-                ModelInfo("deepseek/deepseek-chat", "DeepSeek Chat"),
-                ModelInfo("google/gemini-2.5-pro", "Gemini 2.5 Pro")
-            ),
-            defaultModelId = "anthropic/claude-sonnet-4.6"
-        )
-    )
+    fun defaultProviders(): List<ProviderConfig> = ProviderPresets.core.map { it.toProvider() }
 
     fun builtinPlugins(): List<PluginConfig> = listOf(
         PluginConfig(
@@ -202,5 +191,6 @@ class SettingsStore(context: Context) {
         const val KEY_PROVIDERS = "providers_json"
         const val KEY_PLUGINS = "plugins_json"
         const val KEY_PRESET_SEEDED = "preset_seeded"
+        const val KEY_SEEDED_PROVIDERS = "seeded_provider_presets"
     }
 }
