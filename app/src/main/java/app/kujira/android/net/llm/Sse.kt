@@ -24,6 +24,9 @@ internal const val STREAM_IDLE_TIMEOUT_MS = 150_000L
  */
 internal const val STREAM_FINISHED_GRACE_MS = 4_000L
 
+/** Absolute grace period after the first finish reason, in [System.nanoTime] units. */
+internal const val STREAM_FINISHED_GRACE_NANOS = STREAM_FINISHED_GRACE_MS * 1_000_000L
+
 private const val WATCHDOG_TICK_MS = 1_000L
 
 /**
@@ -156,12 +159,24 @@ internal class SseIdleTimeoutException(val idleMs: Long) : IOException("stream i
  * the call and fails the flow with [SseIdleTimeoutException]. [idleTimeoutMs]
  * is re-evaluated every second so a client can shorten it once the answer is
  * known to be complete.
+ *
+ * [hardDeadlineNanos] is an absolute [System.nanoTime] deadline. Once it is
+ * reached the stream is closed normally — even if the gateway keeps sending
+ * (for example repeated usage chunks after `finish_reason`). This is what makes
+ * the "finished grace period" a real deadline instead of another idle timeout.
+ *
+ * [lastActivityNanos] lets a protocol client supply a stricter definition of
+ * "progress" than "any SSE frame". OpenAI-compatible gateways commonly send
+ * `data: {"choices":[]}` heartbeats; those keep the socket warm but are not
+ * progress. When provided, this clock replaces the raw-frame clock.
  */
 internal class SseTransport(private val callFactory: Call.Factory) {
 
     fun open(
         request: Request,
         idleTimeoutMs: () -> Long = { STREAM_IDLE_TIMEOUT_MS },
+        hardDeadlineNanos: () -> Long? = { null },
+        lastActivityNanos: (() -> Long)? = null,
     ): Flow<SseEvent> = channelFlow {
         val call = callFactory.newCall(request)
         val lastActivity = AtomicLong(System.nanoTime())
@@ -210,7 +225,17 @@ internal class SseTransport(private val callFactory: Call.Factory) {
         val watchdog = launch(Dispatchers.Default) {
             while (isActive) {
                 delay(WATCHDOG_TICK_MS)
-                val idleForMs = (System.nanoTime() - lastActivity.get()) / 1_000_000L
+                val deadline = hardDeadlineNanos()
+                if (deadline != null && System.nanoTime() >= deadline) {
+                    // The answer is already complete; stop reading instead of
+                    // waiting for a [DONE]/socket close that may never arrive.
+                    // Closing normally (not cancelling) lets the client emit the
+                    // accumulated answer as a successful finish.
+                    close()
+                    break
+                }
+                val lastProgress = lastActivityNanos?.invoke() ?: lastActivity.get()
+                val idleForMs = (System.nanoTime() - lastProgress) / 1_000_000L
                 if (idleForMs > idleTimeoutMs()) {
                     idleFiredMs.set(idleForMs.coerceAtLeast(1L))
                     call.cancel()

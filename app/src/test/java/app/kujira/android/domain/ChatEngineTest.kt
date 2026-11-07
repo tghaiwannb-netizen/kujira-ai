@@ -458,6 +458,37 @@ class ChatEngineTest {
         assertTrue(turns[1].text.contains("工具执行失败"))
     }
 
+    @Test
+    fun `empty answer with exhausted reasoning budget gets a visible hint`() = runBlocking {
+        val streamer = FakeStreamer(
+            listOf(
+                listOf(
+                    LlmEvent.ReasoningDelta("想了很久"),
+                    LlmEvent.Finished(finishReason = "length")
+                )
+            )
+        )
+
+        val events = engine(streamer, FakeToolExecutor(listOf(pingTool))).send(request()).toList()
+        val message = (events.last() as ChatEvent.Completed).messages.single()
+
+        assertEquals("想了很久", message.reasoning)
+        assertTrue(message.text.contains("思考过程"))
+        assertTrue(message.text.contains("最大输出长度"))
+        assertTrue(message.text.contains("finish_reason: length"))
+    }
+
+    @Test
+    fun `completely empty answer is explained instead of blank`() = runBlocking {
+        val streamer = FakeStreamer(listOf(listOf(LlmEvent.Finished(finishReason = "stop"))))
+
+        val events = engine(streamer, FakeToolExecutor(listOf(pingTool))).send(request()).toList()
+        val message = (events.last() as ChatEvent.Completed).messages.single()
+
+        assertTrue(message.text.contains("没有返回任何内容"))
+        assertTrue(message.text.contains("finish_reason: stop"))
+    }
+
     private class EndlessStreamer : LlmStreamer {
         @Volatile
         var cancelled: Boolean = false

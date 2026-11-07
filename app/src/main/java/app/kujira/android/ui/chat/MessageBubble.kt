@@ -51,11 +51,13 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -267,6 +269,20 @@ private fun AssistantMessage(
         message.blocks.any { it is ContentBlock.ToolCall }
     }
     val reasoning = message.reasoning
+    val waitingForFirstToken = isStreaming && !hasVisibleText && reasoning.isBlank() && !hasToolCalls
+
+    // A visible clock makes "the model is still thinking" distinguishable from
+    // "the UI is frozen", even when reasoning content is hidden in settings.
+    var thinkingSeconds by remember(message.id) { mutableStateOf(0L) }
+    LaunchedEffect(waitingForFirstToken, message.id) {
+        thinkingSeconds = 0L
+        if (!waitingForFirstToken) return@LaunchedEffect
+        val startedAt = System.currentTimeMillis()
+        while (true) {
+            delay(1_000)
+            thinkingSeconds = (System.currentTimeMillis() - startedAt) / 1_000
+        }
+    }
 
     val accentColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)
     Box(modifier = Modifier.fillMaxWidth()) {
@@ -335,14 +351,18 @@ private fun AssistantMessage(
                     }
                 }
 
-                if (isStreaming && !hasVisibleText && reasoning.isBlank() && !hasToolCalls) {
+                if (waitingForFirstToken) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         LoadingDots()
                         Text(
-                            text = "正在思考…",
+                            text = if (thinkingSeconds >= 3) {
+                                "正在思考… ${thinkingSeconds} 秒"
+                            } else {
+                                "正在思考…"
+                            },
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )

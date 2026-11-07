@@ -48,9 +48,14 @@ class OpenAiCompatibleClient(
 
         val state = OpenAiStreamState(json)
         try {
-            transport.open(httpRequest) {
-                if (state.hasFinishReason) STREAM_FINISHED_GRACE_MS else STREAM_IDLE_TIMEOUT_MS
-            }
+            transport.open(
+                httpRequest,
+                idleTimeoutMs = {
+                    if (state.hasFinishReason) STREAM_FINISHED_GRACE_MS else STREAM_IDLE_TIMEOUT_MS
+                },
+                hardDeadlineNanos = { state.finishGraceDeadlineNanos },
+                lastActivityNanos = { state.lastMeaningfulNanos }
+            )
                 .takeWhile { !it.isDone }
                 .collect { sse ->
                     state.accept(sse.data).forEach { event -> emit(event) }

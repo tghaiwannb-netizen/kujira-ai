@@ -1,6 +1,8 @@
 package app.kujira.android.net.llm
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -121,6 +123,39 @@ class OpenAiStreamStateTest {
         assertEquals(emptyList<LlmEvent>(), state.accept("""{"choices":[]}"""))
         val finished = state.finished() as LlmEvent.Finished
         assertEquals("stop", finished.finishReason)
+    }
+
+    @Test
+    fun `empty heartbeat chunks do not count as progress`() {
+        val state = OpenAiStreamState()
+        val before = state.lastMeaningfulNanos
+
+        Thread.sleep(5)
+        state.accept("""{"choices":[]}""")
+        state.accept("""{"choices":[{"delta":{"content":""},"finish_reason":null}]}""")
+        assertEquals(before, state.lastMeaningfulNanos)
+
+        Thread.sleep(5)
+        state.accept("""{"choices":[{"delta":{"content":"hi"},"finish_reason":null}]}""")
+        assertTrue(state.lastMeaningfulNanos > before)
+    }
+
+    @Test
+    fun `finish reason records a non-extendable grace deadline`() {
+        val state = OpenAiStreamState()
+        assertNull(state.finishGraceDeadlineNanos)
+
+        state.accept("""{"choices":[{"delta":{},"finish_reason":"stop"}]}""")
+        val deadline = state.finishGraceDeadlineNanos
+        assertNotNull(deadline)
+        val remainingMs = (deadline!! - System.nanoTime()) / 1_000_000L
+        assertTrue("remaining=$remainingMs", remainingMs in 3_000L..4_500L)
+
+        // Usage chunks keep arriving after finish_reason; they must not push the
+        // deadline back (that was the remaining infinite-stream hole).
+        state.accept("""{"choices":[],"usage":{"prompt_tokens":1}}""")
+        state.accept("""{"choices":[{"delta":{},"finish_reason":"stop"}]}""")
+        assertEquals(deadline, state.finishGraceDeadlineNanos)
     }
 
     @Test
