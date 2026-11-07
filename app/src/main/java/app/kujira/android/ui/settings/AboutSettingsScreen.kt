@@ -31,7 +31,7 @@ import app.kujira.android.ui.theme.KujiraTheme
 fun AboutSettingsScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
-    appVersion: String = "1.3.1",
+    appVersion: String = "1.3.2",
     buildInfo: String? = null,
     onOpenSourceLicenses: (() -> Unit)? = null,
     onOpenAcknowledgements: (() -> Unit)? = null,

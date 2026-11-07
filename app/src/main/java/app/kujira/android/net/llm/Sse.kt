@@ -3,12 +3,28 @@ package app.kujira.android.net.llm
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import okhttp3.Call
 import okhttp3.Request
 import okhttp3.Response
+import java.io.IOException
+import java.util.concurrent.atomic.AtomicLong
+
+/** No SSE event for this long (comments/keep-alives do not count) → the stream is considered stuck. */
+internal const val STREAM_IDLE_TIMEOUT_MS = 150_000L
+
+/**
+ * Once the model has reported a finish reason, only a trailing usage chunk can
+ * still follow. If the gateway then neither closes the stream nor sends
+ * `[DONE]`, wait this long and treat the answer as complete.
+ */
+internal const val STREAM_FINISHED_GRACE_MS = 4_000L
+
+private const val WATCHDOG_TICK_MS = 1_000L
 
 /**
  * One dispatched `text/event-stream` event.
@@ -120,6 +136,9 @@ internal class SseParser {
     }
 }
 
+/** The stream stayed silent (no real SSE event) for [idleMs]; the call was aborted. */
+internal class SseIdleTimeoutException(val idleMs: Long) : IOException("stream idle for ${idleMs}ms")
+
 /**
  * Opens an HTTP request and streams its SSE events.
  *
@@ -128,15 +147,31 @@ internal class SseParser {
  * `call.cancel()`, which breaks the blocking `execute()` / line reads and
  * closes the socket. Non-2xx responses are converted into [LlmHttpException]
  * with a friendly Chinese message; transport failures surface as [IOException].
+ *
+ * Idle watchdog: OkHttp's read timeout is reset by *any* bytes, including the
+ * `: keep-alive` comments many gateways (OpenRouter, proxies) send while the
+ * model is stuck or queued, so a stalled request could wait forever behind a
+ * "正在思考…" placeholder. The watchdog only counts real events (comments and
+ * Anthropic `ping`s excluded); when none arrives for [idleTimeoutMs] it cancels
+ * the call and fails the flow with [SseIdleTimeoutException]. [idleTimeoutMs]
+ * is re-evaluated every second so a client can shorten it once the answer is
+ * known to be complete.
  */
 internal class SseTransport(private val callFactory: Call.Factory) {
 
-    fun open(request: Request): Flow<SseEvent> = channelFlow {
+    fun open(
+        request: Request,
+        idleTimeoutMs: () -> Long = { STREAM_IDLE_TIMEOUT_MS },
+    ): Flow<SseEvent> = channelFlow {
         val call = callFactory.newCall(request)
+        val lastActivity = AtomicLong(System.nanoTime())
+        val idleFiredMs = AtomicLong(0L)
+
         launch(Dispatchers.IO) {
             var response: Response? = null
             try {
                 response = call.execute()
+                lastActivity.set(System.nanoTime())
                 if (!response.isSuccessful) {
                     val rawBody = runCatching { response.body?.string() }.getOrNull()
                     throw LlmHttpException(
@@ -153,20 +188,39 @@ internal class SseTransport(private val callFactory: Call.Factory) {
                 val parser = SseParser()
                 while (true) {
                     val line = source.readUtf8Line() ?: break
-                    for (event in parser.feed(line + "\n")) send(event)
+                    for (event in parser.feed(line + "\n")) {
+                        if (event.event != "ping") lastActivity.set(System.nanoTime())
+                        send(event)
+                    }
                 }
                 parser.finish()?.let { send(it) }
                 close()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Throwable) {
-                close(e)
+                // A watchdog-triggered cancel surfaces here as IOException("Canceled"):
+                // report the real reason instead.
+                val idle = idleFiredMs.get()
+                close(if (idle > 0L) SseIdleTimeoutException(idle) else e)
             } finally {
                 response?.close()
             }
         }
 
+        val watchdog = launch(Dispatchers.Default) {
+            while (isActive) {
+                delay(WATCHDOG_TICK_MS)
+                val idleForMs = (System.nanoTime() - lastActivity.get()) / 1_000_000L
+                if (idleForMs > idleTimeoutMs()) {
+                    idleFiredMs.set(idleForMs.coerceAtLeast(1L))
+                    call.cancel()
+                    break
+                }
+            }
+        }
+
         awaitClose {
+            watchdog.cancel()
             call.cancel()
         }
     }

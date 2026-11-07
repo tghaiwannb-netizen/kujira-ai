@@ -22,8 +22,14 @@ internal class OpenAiStreamState(private val json: Json = LlmJson) {
     }
 
     private val toolCalls = sortedMapOf<Int, ToolCallAcc>()
+
+    // Read by the idle watchdog thread, written by the collector.
+    @Volatile
     private var finishReason: String? = null
     private var usage: Usage? = null
+
+    /** True once the model has reported a finish reason (the answer itself is complete). */
+    val hasFinishReason: Boolean get() = finishReason != null
 
     /** Loads a `data: <json>` payload and returns the deltas it contains. */
     fun accept(data: String): List<LlmEvent> {
