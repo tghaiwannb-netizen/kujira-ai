@@ -12,6 +12,8 @@ import app.kujira.android.net.mcp.McpManager
 import app.kujira.android.net.mcp.ToolPolicies
 import app.kujira.android.net.mcp.ToolSchema
 import app.kujira.android.net.sentinelx.SentinelXPreset
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -26,6 +28,10 @@ import kotlinx.serialization.json.put
  *    (the model rarely knows the host id, and the user picked one in the UI);
  *  - translate MCP failures into human-Chinese results (never throw);
  *  - record every call in the audit table.
+ *
+ * Cancellation is the one thing that is *not* translated: stopping a
+ * generation must abort the tool call, so [CancellationException] always
+ * propagates.
  */
 class McpToolExecutor(
     private val manager: McpManager,
@@ -84,6 +90,9 @@ class McpToolExecutor(
                 isError = mcpResult.isError,
                 durationMs = System.currentTimeMillis() - started
             )
+        } catch (cancelled: CancellationException) {
+            // Never turn "the user pressed stop" into a tool result.
+            throw cancelled
         } catch (auth: McpAuthRequiredException) {
             ToolExecResult(
                 output = humanize(plugin, auth.message ?: "需要重新授权"),
@@ -155,10 +164,15 @@ class McpToolExecutor(
         startedAt: Long
     ) {
         val db = database ?: return
+        // With several conversations generating at once "the last opened one"
+        // is the wrong answer: the chat loop tags its coroutine instead.
+        val conversationId = currentCoroutineContext()[ConversationContext]?.conversationId
+            ?: conversationIdProvider()
+            ?: ""
         runCatching {
             db.recordAudit(
                 ToolAudit(
-                    conversationId = conversationIdProvider() ?: "",
+                    conversationId = conversationId,
                     pluginId = tool.pluginId,
                     pluginName = tool.pluginName,
                     toolName = tool.name,

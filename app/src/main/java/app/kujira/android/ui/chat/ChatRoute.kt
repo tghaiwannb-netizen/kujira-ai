@@ -50,10 +50,14 @@ fun ChatRoute(
         }
     }
 
+    val activeId = state.activeConversation?.id
+    // Conversations other than the open one that are still generating.
+    val otherRunningCount = state.generatingIds.count { it != activeId }
+
     Box(modifier = Modifier.fillMaxSize()) {
         SessionDrawerHost(
             conversations = state.conversations,
-            currentConversationId = state.activeConversation?.id,
+            currentConversationId = activeId,
             drawerState = drawerState,
             onNewConversation = {
                 viewModel.newConversation()
@@ -71,7 +75,9 @@ fun ChatRoute(
                 Toast.makeText(context, "已删除对话", Toast.LENGTH_SHORT).show()
             },
             onTogglePin = { conversation -> viewModel.togglePin(conversation.id) },
-            onOpenSettings = onOpenSettings
+            onOpenSettings = onOpenSettings,
+            generatingIds = state.generatingIds,
+            onStopConversation = { conversation -> viewModel.stopConversation(conversation.id) }
         ) {
             ChatScreen(
                 messages = state.messages,
@@ -81,10 +87,16 @@ fun ChatRoute(
                 pluginsLabel = state.pluginsLabel,
                 pluginsHealthy = state.pluginsHealthy,
                 showReasoning = state.showReasoning,
-                awaitingToolCallId = state.pendingToolCallId,
+                // Only show allow/deny while a confirmation is really pending —
+                // AUTO tools never wait for the user.
+                awaitingToolCallId = if (state.pendingTool != null) state.pendingToolCallId else null,
                 contextUsage = state.contextUsage,
                 compacting = state.compacting,
                 contextSummary = state.activeConversation?.contextSummary,
+                otherRunningCount = otherRunningCount,
+                draftKey = activeId,
+                initialDraft = viewModel.draftFor(activeId),
+                onDraftChange = { text -> viewModel.saveDraft(activeId, text) },
                 onSend = viewModel::send,
                 onStop = viewModel::stop,
                 onOpenDrawer = { scope.launch { drawerState.open() } },

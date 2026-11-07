@@ -285,6 +285,12 @@ class ChatEngine(
     ): List<ContentBlock> = buildList {
         if (outcome.reasoning.isNotBlank()) add(ContentBlock.Reasoning(outcome.reasoning))
         if (outcome.text.isNotBlank()) add(ContentBlock.Text(outcome.text))
+        // An empty final turn must not render as a blank bubble: tell the user
+        // why nothing arrived (reasoning models can spend the whole maxTokens
+        // budget on thinking and emit no visible text at all).
+        if (outcome.text.isBlank() && outcome.toolCalls.isEmpty()) {
+            add(ContentBlock.Text(emptyAnswerHint(outcome.finishReason, outcome.reasoning.isNotBlank())))
+        }
         for (call in outcome.toolCalls) {
             val descriptor = toolsByName[call.name]
             add(
@@ -318,6 +324,29 @@ class ChatEngine(
     private fun effectiveSystemPrompt(request: ChatRequest): String? =
         request.systemPrompt?.trim()?.takeIf { it.isNotEmpty() }
             ?: request.settings.systemPrompt.trim().takeIf { it.isNotEmpty() }
+
+    /**
+     * Explains an empty final answer instead of leaving the user with a blank
+     * bubble. `finish_reason=length` with hidden reasoning is the common case:
+     * the model exhausted `maxTokens` while thinking and never wrote a reply.
+     */
+    private fun emptyAnswerHint(finishReason: String?, hadReasoning: Boolean): String {
+        val reason = finishReason?.takeIf { it.isNotBlank() }
+            ?.let { "（finish_reason: $it）" }
+            .orEmpty()
+        return when {
+            finishReason == "length" && hadReasoning ->
+                "⚠️ 模型把输出额度都用在了思考过程上，没有生成正文$reason。" +
+                    "请调大设置里的「最大输出长度」，或换用非推理模型后重试。"
+
+            finishReason == "length" ->
+                "⚠️ 模型达到了最大输出长度，没有生成正文$reason。" +
+                    "请调大设置里的「最大输出长度」后重试。"
+
+            else ->
+                "⚠️ 模型没有返回任何内容$reason。请重试，或换一个模型。"
+        }
+    }
 
     private fun normalizeSchema(raw: String): String {
         val parsed = runCatching { json.parseToJsonElement(raw) }.getOrNull()

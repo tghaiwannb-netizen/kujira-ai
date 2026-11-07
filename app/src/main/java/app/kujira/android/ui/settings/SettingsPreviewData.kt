@@ -13,7 +13,7 @@ import app.kujira.android.data.model.ThemeMode
  * through parameters.
  */
 
-internal const val PREVIEW_APP_VERSION = "1.2.2"
+internal const val PREVIEW_APP_VERSION = "1.3.3"
 
 internal val previewProviders: List<ProviderConfig> = listOf(
     ProviderConfig(

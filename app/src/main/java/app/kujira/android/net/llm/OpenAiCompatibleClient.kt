@@ -19,6 +19,11 @@ import java.io.IOException
  * [LlmEvent.Finished] on success or [LlmEvent.Failed] with a human-readable
  * Chinese message on any HTTP/transport/protocol failure. Cancelling collection
  * cancels the underlying HTTP call.
+ *
+ * A stream that goes silent never hangs the chat: see the idle watchdog in
+ * [SseTransport]. If the model already reported a finish reason and the gateway
+ * simply forgot to close the stream, the answer is accepted as complete after a
+ * short grace period instead of being reported as an error.
  */
 class OpenAiCompatibleClient(
     private val httpClient: OkHttpClient,
@@ -43,13 +48,32 @@ class OpenAiCompatibleClient(
 
         val state = OpenAiStreamState(json)
         try {
-            transport.open(httpRequest)
+            transport.open(
+                httpRequest,
+                idleTimeoutMs = {
+                    if (state.hasFinishReason) STREAM_FINISHED_GRACE_MS else STREAM_IDLE_TIMEOUT_MS
+                },
+                hardDeadlineNanos = { state.finishGraceDeadlineNanos },
+                lastActivityNanos = { state.lastMeaningfulNanos }
+            )
                 .takeWhile { !it.isDone }
                 .collect { sse ->
                     state.accept(sse.data).forEach { event -> emit(event) }
                 }
         } catch (e: CancellationException) {
             throw e
+        } catch (e: SseIdleTimeoutException) {
+            if (!state.hasFinishReason) {
+                emit(
+                    LlmEvent.Failed(
+                        "模型 ${e.idleMs / 1000} 秒没有返回任何数据，已中止。可能是网络卡住或模型在排队，请重试或换个模型。",
+                        null,
+                        true
+                    )
+                )
+                return@flow
+            }
+            // finish_reason was already received: the gateway just never closed the stream.
         } catch (e: LlmHttpException) {
             val message = when {
                 request.provider.kind.isOpenCode && e.code == 403 ->

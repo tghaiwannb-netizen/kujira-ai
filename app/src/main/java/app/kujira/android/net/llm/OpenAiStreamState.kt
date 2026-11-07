@@ -22,8 +22,38 @@ internal class OpenAiStreamState(private val json: Json = LlmJson) {
     }
 
     private val toolCalls = sortedMapOf<Int, ToolCallAcc>()
+
+    // Read by the idle watchdog thread, written by the collector.
+    @Volatile
     private var finishReason: String? = null
     private var usage: Usage? = null
+
+    /** [System.nanoTime] when the first finish reason arrived; null until then. */
+    @Volatile
+    private var finishReasonAtNanos: Long? = null
+
+    /**
+     * Last [System.nanoTime] this stream produced something the user would
+     * notice: text, reasoning, a tool call, usage or a finish reason.
+     *
+     * Gateways often send `data: {"choices":[]}` heartbeats while a model is
+     * queued. Those must not keep the idle watchdog alive forever; the
+     * transport reads this clock instead of counting raw SSE events.
+     */
+    @Volatile
+    var lastMeaningfulNanos: Long = System.nanoTime()
+        private set
+
+    /** True once the model has reported a finish reason (the answer itself is complete). */
+    val hasFinishReason: Boolean get() = finishReason != null
+
+    /**
+     * Absolute [System.nanoTime] after which the stream must be treated as
+     * complete, even if the gateway keeps sending events. Null until a finish
+     * reason arrives.
+     */
+    val finishGraceDeadlineNanos: Long?
+        get() = finishReasonAtNanos?.plus(STREAM_FINISHED_GRACE_NANOS)
 
     /** Loads a `data: <json>` payload and returns the deltas it contains. */
     fun accept(data: String): List<LlmEvent> {
@@ -42,7 +72,9 @@ internal class OpenAiStreamState(private val json: Json = LlmJson) {
             )
         }
 
+        var meaningful = false
         root["usage"].asObject()?.let { raw ->
+            meaningful = true
             val prompt = raw.intOf("prompt_tokens", "input_tokens") ?: 0
             val completion = raw.intOf("completion_tokens", "output_tokens") ?: 0
             val opencode = raw["opencode"].asObject()
@@ -76,19 +108,29 @@ internal class OpenAiStreamState(private val json: Json = LlmJson) {
             )
         }
 
-        val choice = root["choices"].asArray()?.firstOrNull().asObject() ?: return emptyList()
+        val choice = root["choices"].asArray()?.firstOrNull().asObject()
+        if (choice == null) {
+            if (meaningful) lastMeaningfulNanos = System.nanoTime()
+            return emptyList()
+        }
         val events = mutableListOf<LlmEvent>()
 
         choice["delta"].asObject()?.let { delta ->
-            delta["content"].asString()?.takeIf { it.isNotEmpty() }
-                ?.let { events += LlmEvent.TextDelta(it) }
+            delta["content"].asString()?.takeIf { it.isNotEmpty() }?.let {
+                meaningful = true
+                events += LlmEvent.TextDelta(it)
+            }
             // DeepSeek exposes reasoning as `reasoning_content`, OpenRouter as `reasoning`.
             (delta["reasoning_content"].asString() ?: delta["reasoning"].asString())
                 ?.takeIf { it.isNotEmpty() }
-                ?.let { events += LlmEvent.ReasoningDelta(it) }
+                ?.let {
+                    meaningful = true
+                    events += LlmEvent.ReasoningDelta(it)
+                }
 
             delta["tool_calls"].asArray()?.forEach { element ->
                 val call = element.asObject() ?: return@forEach
+                meaningful = true
                 val index = call.intOf("index") ?: toolCalls.keys.lastOrNull() ?: 0
                 val acc = toolCalls.getOrPut(index) { ToolCallAcc() }
                 call.stringOf("id")?.takeIf { it.isNotBlank() }?.let { acc.id = it }
@@ -100,13 +142,19 @@ internal class OpenAiStreamState(private val json: Json = LlmJson) {
 
             // Legacy single-function-call format (old OpenAI-compatible servers).
             delta["function_call"].asObject()?.let { function ->
+                meaningful = true
                 val acc = toolCalls.getOrPut(0) { ToolCallAcc() }
                 function.stringOf("name")?.takeIf { it.isNotBlank() }?.let { acc.name = it }
                 function["arguments"].asArgumentFragment()?.let { acc.arguments.append(it) }
             }
         }
 
-        choice["finish_reason"].asString()?.let { finishReason = it }
+        choice["finish_reason"].asString()?.let { reason ->
+            meaningful = true
+            finishReason = reason
+            if (finishReasonAtNanos == null) finishReasonAtNanos = System.nanoTime()
+        }
+        if (meaningful) lastMeaningfulNanos = System.nanoTime()
         return events
     }
 
